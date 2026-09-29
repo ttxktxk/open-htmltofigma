@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<!-- Test fixture shaped like a Claude Design standalone export: default 8px body margin, dc-root wrapper,
+     [data-screen-label] root 375x812, $preview in data-props, a fixed toast (portal, inside the design)
+     and a dropdown portal that sticks out on the right (must be clipped + reported). -->
+<html><head><meta charset="utf-8"><title>Login - Change Organization</title>
+<link rel="stylesheet" href="_fonts.css">
+<style>
+  .scr{font-family:"Inter","Noto Sans Thai",sans-serif;color:#1d2433}
+  .card{margin:0 16px;padding:16px;border-radius:12px;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.12)}
+  @media (min-width: 768px){ .card{background:#ffd5d5} .hint{display:none} }   /* desktop breakpoint: must NOT apply */
+  .org{display:flex;align-items:center;gap:12px;padding:12px;border:1px solid #e3e6ec;border-radius:10px;margin-top:10px}
+  .org.sel{border:2px solid #F2863A;background:#fff6ef}
+  .dot{width:36px;height:36px;border-radius:50%;background:#F2863A;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700}
+  .btn{position:absolute;left:16px;right:16px;bottom:34px;height:48px;border-radius:24px;background:#F2863A;color:#fff;font-weight:700;display:flex;align-items:center;justify-content:center;font-size:16px}
+</style></head>
+<body>
+<div id="dc-root"><div><div data-screen-label="Login - Change Organization" class="scr" style="position:relative;width:375px;height:812px;overflow:hidden;background:#F4F5F7">
+  <div style="height:44px;display:flex;justify-content:space-between;align-items:center;padding:0 20px;font-size:14px;font-weight:500"><span>9:41</span><span>100%</span></div>
+  <div style="padding:12px 20px 16px"><div style="font-size:24px;font-weight:700">เลือกหน่วยงาน</div>
+    <div class="hint" style="font-size:14px;color:#667085;margin-top:4px">บัญชีของคุณเข้าถึงได้ 3 หน่วยงาน กรุณาเลือกหน่วยงานที่ต้องการใช้งาน</div></div>
+  <div class="card">
+    <div class="org sel"><div class="dot">ก</div><div><div style="font-weight:500">หน่วยงานตัวอย่าง สาขาที่หนึ่ง</div><div style="font-size:12px;color:#667085">ORG-A · Branch 1</div></div></div>
+    <div class="org"><div class="dot" style="background:#3b82f6">ข</div><div><div style="font-weight:500">หน่วยงานตัวอย่าง สาขาสอง</div><div style="font-size:12px;color:#667085">Sample Branch 2</div></div></div>
+    <div class="org"><div class="dot" style="background:#10b981">ค</div><div><div style="font-weight:500">หน่วยงานตัวอย่างกลาง</div><div style="font-size:12px;color:#667085">ORG-C</div></div></div>
+  </div>
+  <div class="btn">ยืนยันหน่วยงาน</div>
+</div></div></div>
+<!-- portals rendered outside the design root -->
+<div id="toast" style="position:fixed;left:24px;top:640px;width:311px;padding:10px 14px;border-radius:8px;background:#1d2433;color:#fff;font:14px/1.4 'Noto Sans Thai',sans-serif">เปลี่ยนหน่วยงานสำเร็จ</div>
+<div id="menu" style="position:absolute;left:300px;top:160px;width:150px;padding:8px 0;border-radius:8px;background:#fff;box-shadow:0 4px 12px rgba(0,0,0,.15);font:14px 'Noto Sans Thai',sans-serif"><div style="padding:6px 12px">ตั้งค่า</div><div style="padding:6px 12px">ออกจากระบบ</div></div>
+<script type="text/x-dc" data-dc-script="" data-props='{"$preview":{"width":375,"height":812}}'></script>
+</body></html>

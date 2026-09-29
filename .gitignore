@@ -1,3 +1,25 @@
 node_modules/
 *.log
 .DS_Store
+
+# ---- project data: stays on this machine, never committed ---------------------------
+# capture output (design.json, reference.png, capture-report.json from real pages)
+out/
+spikes/out/
+regression/out/
+# real Claude Design exports used as regression baseline
+regression/inputs/
+# results of real pages from the prototype rounds (design.json, screenshots, heatmaps)
+spikes/results-cloud/
+# files delivered by the assistant (real-page results)
+Claude outputs/
+# real HTML exports anywhere in the repo (Claude Design "... standalone*.html")
+*standalone*.html
+# DB Ozone X is a commercial font: never commit it (any format, any case)
+*[Oo][Zz][Oo][Nn][Ee]*.ttf
+*[Oo][Zz][Oo][Nn][Ee]*.otf
+*[Oo][Zz][Oo][Nn][Ee]*.woff
+*[Oo][Zz][Oo][Nn][Ee]*.woff2
+# plugin results exported from Figma for real pages
+import-result*.json
+figma-e2e*.png

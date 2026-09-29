@@ -1,0 +1,16 @@
+{
+  "name": "h2f-spikes",
+  "private": true,
+  "description": "Technical spikes for the HTML -> Figma importer (not production code)",
+  "license": "MIT",
+  "scripts": {
+    "capture": "node capture.js",
+    "font-spike": "node font-spike.js",
+    "preview": "node test/render-design.js",
+    "mock-test": "node test/mock-figma.js"
+  },
+  "dependencies": {
+    "ajv": "^8.17.1",
+    "playwright-core": "~1.56.0"
+  }
+}

@@ -1,0 +1,104 @@
+<style>
+  body { font: 12px/1.45 Inter, system-ui, sans-serif; margin: 0; padding: 12px; color: var(--figma-color-text, #222); background: var(--figma-color-bg, #fff); }
+  h3 { font-size: 12px; margin: 14px 0 6px; }
+  textarea, input[type=text], select { width: 100%; box-sizing: border-box; font: 11px/1.4 ui-monospace, monospace; border: 1px solid var(--figma-color-border, #ccc); border-radius: 4px; padding: 6px; background: transparent; color: inherit; }
+  textarea { height: 140px; }
+  button { margin: 6px 6px 0 0; padding: 6px 10px; border-radius: 5px; border: 1px solid var(--figma-color-border, #ccc); background: var(--figma-color-bg-secondary, #f5f5f5); color: inherit; cursor: pointer; }
+  button.primary { background: #0d99ff; border-color: #0d99ff; color: #fff; }
+  button:disabled { opacity: .5; cursor: default; }
+  details { margin-top: 8px; } summary { cursor: pointer; font-weight: 600; }
+  .row { display: flex; gap: 8px; align-items: center; }
+  #status { margin-top: 10px; font: 11px/1.45 ui-monospace, monospace; white-space: pre-wrap; }
+  #result { margin-top: 10px; border-top: 1px solid var(--figma-color-border, #ddd); padding-top: 8px; max-height: 330px; overflow: auto; }
+  #result table { border-collapse: collapse; width: 100%; font: inherit; }
+  #result td { padding: 3px 4px; vertical-align: top; border-bottom: 1px solid var(--figma-color-border, #eee); }
+  #result td:first-child { color: var(--figma-color-text-secondary, #666); width: 38%; }
+  .ok { color: #14ae5c; } .warn { color: #e5a000; } .err { color: #e03e1a; }
+  ul { margin: 2px 0; padding-left: 16px; }
+</style>
+
+<h3>1 · design.json</h3>
+<input type="file" id="file" accept=".json">
+<div id="fileinfo">Choose <b>out\&lt;file&gt;\&lt;W&gt;x&lt;H&gt;\design.json</b> from <code>npm run capture</code>.</div>
+
+<details id="fontsbox">
+  <summary>Fonts (map CSS fonts to Figma font styles)</summary>
+  <textarea id="config">{
+  "fontMap": {},
+  "families": {
+    "DB Ozone X": { "400": "Regular", "500": "Medium", "700": "Bold" },
+    "Noto Sans Thai": { "400": "Regular", "500": "Medium", "700": "Bold" },
+    "Inter": { "400": "Regular", "500": "Medium", "700": "Bold" }
+  },
+  "fallback": { "family": "Inter", "style": "Regular" }
+}</textarea>
+  <div class="row"><input type="text" id="q" value="ozone" style="flex:1"><button id="find">Find fonts</button></div>
+  <div class="row" style="margin-top:6px">Line breaks:
+    <select id="linemode" style="width:auto"><option value="ls">U+2028 (recommended)</option><option value="nl">\n</option><option value="none">Figma wraps</option></select>
+  </div>
+</details>
+
+<h3>2 · Import</h3>
+<button class="primary" id="import" disabled>Import to Figma</button>
+<button id="png" disabled>Download PNG</button>
+<button id="dl" disabled>Download result JSON</button>
+<div id="status"></div>
+<div id="result"></div>
+
+<script>
+  const $ = id => document.getElementById(id);
+  let data = null, lastResult = null;
+  const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;');
+  const status = (s, cls) => { $('status').className = cls || ''; $('status').textContent = s; };
+  const cfg = () => JSON.parse($('config').value);
+  function download(name, blob) { const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; document.body.appendChild(a); a.click(); a.remove(); }
+  function busy(on) { $('import').disabled = on || !data; $('find').disabled = on; $('png').disabled = on || !lastResult; $('dl').disabled = on || !lastResult; }
+
+  $('file').onchange = async () => {
+    const f = $('file').files[0]; if (!f) return;
+    try {
+      const d = JSON.parse(await f.text());
+      if (!d.schemaVersion || !d.root || !d.capture) throw new Error('not a design.json from npm run capture');
+      data = d; lastResult = null; $('result').innerHTML = '';
+      $('fileinfo').innerHTML = `<b>${esc(d.capture.source)}</b> — design ${d.root.box.width}×${d.root.box.height} — v${esc(d.schemaVersion)} — ${(f.size / 1048576).toFixed(1)} MB`;
+      status(''); busy(false);
+    } catch (e) { data = null; status('Could not read the file: ' + e.message, 'err'); busy(false); }
+  };
+  $('find').onclick = () => parent.postMessage({ pluginMessage: { type: 'find-fonts', query: $('q').value } }, '*');
+  $('import').onclick = () => {
+    let c; try { c = cfg(); } catch (e) { $('fontsbox').open = true; status('Font map is not valid JSON: ' + e.message, 'err'); return; }
+    parent.postMessage({ pluginMessage: { type: 'save-config', config: c } }, '*');
+    busy(true); $('result').innerHTML = ''; status('Importing…');
+    parent.postMessage({ pluginMessage: { type: 'import', data, config: c, lineMode: $('linemode').value } }, '*');
+  };
+  $('png').onclick = () => parent.postMessage({ pluginMessage: { type: 'export-png', rootId: lastResult.rootId, scale: 2, name: 'figma-e2e.png' } }, '*');
+  $('dl').onclick = () => download('import-result.json', new Blob([JSON.stringify(lastResult, null, 2)], { type: 'application/json' }));
+
+  function showSummary(m) {
+    const s = m.summary, row = (k, v) => `<tr><td>${k}</td><td>${v}</td></tr>`;
+    const good = (ok, text) => `<span class="${ok ? 'ok' : 'err'}">${text}</span>`;
+    const list = (arr, fn, max = 12) => arr.length ? `<ul>${arr.slice(0, max).map(x => `<li>${fn(x)}</li>`).join('')}${arr.length > max ? `<li>… ${arr.length - max} more</li>` : ''}</ul>` : '<span class="ok">none</span>';
+    $('result').innerHTML = '<table>' +
+      row('Design size', `<b>${s.designSize.width} × ${s.designSize.height}</b>${s.detection ? ` <span style="opacity:.7">(${esc(s.detection)})</span>` : ''}`) +
+      row('Layers', good(s.layers.created === s.layers.expected, `${s.layers.created} / ${s.layers.expected}`)) +
+      row('Missing layers', list(s.missingLayers, x => esc((x.nodeId || x.assetId) + ' ' + (x.name || '') + ' — ' + x.reason))) +
+      row('Substituted fonts', s.substitutedFonts.length ? `<ul>${s.substitutedFonts.map(f => `<li class="warn">${esc(f.requested)} → ${esc(f.resolved)} (${f.count})</li>`).join('')}</ul>` : '<span class="ok">none</span>') +
+      row('Browser font fallback', s.captureFontIssues.length ? `<ul>${s.captureFontIssues.slice(0, 6).map(f => `<li class="warn">${esc(f.nodeId)}: Chrome used ${esc(f.usedFamily || '?')} (${esc(f.issue)})</li>`).join('')}</ul>` : '<span class="ok">none</span>') +
+      row('Unsupported features', s.unsupported.length ? `<ul>${s.unsupported.map(u => `<li class="warn">${esc(u.feature)} ×${u.count}</li>`).join('')}</ul>` : '<span class="ok">none</span>') +
+      row('Raster fallbacks', Object.keys(s.rasterFallbacks).length ? Object.entries(s.rasterFallbacks).map(([k, v]) => `${esc(k)} ×${v}`).join(', ') : 'none') +
+      row('Geometry > ±2 px', good(!s.geometryFailures, s.geometryFailures)) +
+      row('Line breaks ≠ Chrome', good(!s.textLineMismatch, s.textLineMismatch)) +
+      '</table>';
+    status(s.layers.created === s.layers.expected && !s.missingLayers.length ? 'Import finished.' : 'Import finished with problems — see below.', s.missingLayers.length ? 'err' : 'ok');
+  }
+
+  onmessage = e => {
+    const m = e.data.pluginMessage; if (!m) return;
+    if (m.type === 'error') { status('Error: ' + m.message, 'err'); busy(false); return; }
+    if (m.type === 'config') { $('config').value = JSON.stringify(m.config, null, 2); return; }
+    if (m.type === 'progress') { status(`Importing… ${m.done}/${m.total} layers`); return; }
+    if (m.type === 'fonts') { $('fontsbox').open = true; status(Object.keys(m.fams).length ? Object.entries(m.fams).map(([f, s]) => `${f}: ${s.join(', ')}`).join('\n') : 'No family matches.'); return; }
+    if (m.type === 'png') { download(m.name, new Blob([m.bytes], { type: 'image/png' })); return; }
+    if (m.type === 'import-result') { lastResult = m; busy(false); showSummary(m); }
+  };
+</script>

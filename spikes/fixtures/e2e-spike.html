@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<title>E2E spike</title>
+<style>
+  @font-face { font-family: "Inter"; font-weight: 400; src: url(../fonts/inter-latin-400-normal.woff2) format("woff2"); }
+  @font-face { font-family: "Inter"; font-weight: 500; src: url(../fonts/inter-latin-500-normal.woff2) format("woff2"); }
+  @font-face { font-family: "Inter"; font-weight: 700; src: url(../fonts/inter-latin-700-normal.woff2) format("woff2"); }
+  @font-face { font-family: "Noto Sans Thai"; font-weight: 400; src: url(../fonts/noto-sans-thai-thai-400-normal.woff2) format("woff2"); }
+  @font-face { font-family: "Noto Sans Thai"; font-weight: 500; src: url(../fonts/noto-sans-thai-thai-500-normal.woff2) format("woff2"); }
+  @font-face { font-family: "Noto Sans Thai"; font-weight: 700; src: url(../fonts/noto-sans-thai-thai-700-normal.woff2) format("woff2"); }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body { font-family: "DB Ozone X", "Noto Sans Thai", sans-serif; color: #1c2430; background: #eef1f4; }
+  .app { display: flex; flex-direction: column; height: 100vh; }
+  .topbar { height: 56px; background: #f26b21; display: flex; align-items: center; padding: 0 24px; gap: 16px; border-bottom: 3px solid #c24f10; }
+  .logo { width: 32px; height: 32px; border-radius: 8px; background: #fff; }
+  .brand { color: #fff; font-size: 22px; font-weight: 700; margin: 0; }
+  .body { flex: 1; display: grid; grid-template-columns: 460px 1fr; gap: 0; min-height: 0; }
+  .panel { background: #fff; padding: 20px 24px; overflow-y: auto; border-right: 1px solid #dfe3e8; }
+  h1 { font-size: 26px; line-height: 34px; font-weight: 700; margin: 0 0 4px; }
+  .sub { font-size: 18px; line-height: 26px; font-weight: 400; color: #5b6573; margin: 0 0 16px; }
+  .label { font-size: 16px; line-height: 22px; font-weight: 500; color: #f26b21; margin: 16px 0 6px; }
+  .field { height: 44px; border-radius: 6px; background: #f3f5f7; border: 1px solid #d5dbe1; padding: 0 12px; display: flex; align-items: center; font-size: 18px; }
+  .card { margin-top: 16px; border-style: solid; border-color: #f26b21 #d5dbe1 #d5dbe1 #d5dbe1; border-width: 4px 1px 2px 1px;
+          border-radius: 12px 12px 4px 4px; padding: 12px; background: #fffaf6; }
+  .card p { margin: 0; font-size: 17px; line-height: 25px; }
+  .thumb { display: block; margin-top: 12px; width: 240px; height: 160px; border-radius: 8px; object-fit: cover; }
+  .clipbox { margin-top: 16px; width: 200px; height: 60px; overflow: hidden; border-radius: 10px; background: #1c2430; position: relative; }
+  .clipbox .bar { position: absolute; left: 120px; top: 10px; width: 160px; height: 40px; background: #f26b21; }
+  .mapwrap { position: relative; min-height: 0; }
+  canvas { display: block; width: 100%; height: 100%; }
+  .pin { position: absolute; left: 40%; top: 45%; background: #fff; border: 2px solid #f26b21; border-radius: 16px; padding: 4px 12px; font-size: 16px; font-weight: 500; }
+  .btn { margin-top: 20px; display: inline-block; background: #f26b21; color: #fff; border-radius: 6px; padding: 10px 18px; font-size: 18px; font-weight: 500; }
+</style>
+</head>
+<body>
+  <div class="app">
+    <div class="topbar" data-figma-name="Topbar">
+      <div class="logo"></div>
+      <p class="brand">DEMO GIS</p>
+    </div>
+    <div class="body">
+      <div class="panel" data-figma-name="Panel">
+        <h1>ตรวจสอบและรวมคำร้องตัวอย่าง</h1>
+        <p class="sub">ระบุรายละเอียดเพื่อแจ้งซ่อมอุปกรณ์ในอาคารตัวอย่าง เลขที่ TEST-REQUEST-00001 (Admin)</p>
+        <p class="label">ชื่อถนน หรือ ซอย</p>
+        <div class="field">ถนนตัวอย่าง 18</div>
+        <p class="label">ตำแหน่ง (Lat, Long)</p>
+        <div class="field">12.345678, 100.123456</div>
+        <div class="card" data-figma-name="Card/Warranty">
+          <p>อุปกรณ์ตัวอย่างที่ 1 สิ้นสุดประกันวันที่ 30 ก.ย. 2569 กรุณาตรวจสอบข้อมูลก่อนกดยืนยันการรวมคำร้องตัวอย่าง</p>
+        </div>
+        <img class="thumb" src="photo.png" alt="">
+        <div class="clipbox" data-figma-name="ClipTest"><div class="bar"></div></div>
+        <div class="btn">รวมคำร้องตัวอย่าง</div>
+      </div>
+      <div class="mapwrap" data-figma-name="Map">
+        <canvas id="map"></canvas>
+        <div class="pin">จุดตัวอย่าง #3</div>
+      </div>
+    </div>
+  </div>
+<script>
+  // Stand-in for an ArcGIS/Leaflet canvas map.
+  const c = document.getElementById('map');
+  const r = c.getBoundingClientRect();
+  c.width = r.width * devicePixelRatio; c.height = r.height * devicePixelRatio;
+  const g = c.getContext('2d'); g.scale(devicePixelRatio, devicePixelRatio);
+  g.fillStyle = '#dde5e1'; g.fillRect(0, 0, r.width, r.height);
+  g.fillStyle = '#c9d5ce'; g.beginPath(); g.moveTo(0, r.height * .6); g.lineTo(r.width * .3, r.height * .5); g.lineTo(r.width, r.height * .75); g.lineTo(r.width, r.height); g.lineTo(0, r.height); g.fill();
+  g.strokeStyle = '#fff'; g.lineWidth = 14;
+  g.beginPath(); g.moveTo(r.width * .15, 0); g.lineTo(r.width * .22, r.height); g.stroke();
+  g.beginPath(); g.moveTo(0, r.height * .3); g.lineTo(r.width, r.height * .2); g.stroke();
+</script>
+</body>
+</html>

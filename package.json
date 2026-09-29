@@ -1,7 +1,7 @@
 {
   "name": "open-htmltofigma",
   "version": "1.0.0",
-  "description": "Open-source Figma plugin that converts local HTML into nested Figma frames and layers",
+  "description": "Claude Design / local HTML -> editable Figma layers. MVP-A: Playwright capture CLI + Figma plugin (plus the original in-plugin importer).",
   "license": "MIT",
   "author": "Kevin Bryan <https://kevbry.in>",
   "homepage": "https://kevbry.in",
@@ -19,11 +19,24 @@
     "open-source"
   ],
   "scripts": {
+    "capture": "node capture/cli.js",
+    "preview": "node test/render-design.js",
+    "test": "node test/smoke.js",
+    "test:regression": "node test/regression.js",
+    "check:import": "node test/check-import.js",
     "build": "tsc -p tsconfig.json",
     "watch": "tsc -p tsconfig.json --watch"
   },
   "devDependencies": {
     "@figma/plugin-typings": "^1.109.0",
-    "typescript": "^5.7.3"
+    "typescript": "^5.7.3",
+    "pngjs": "^7.0.0"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "ajv": "^8.17.1",
+    "playwright-core": "~1.56.0"
   }
 }

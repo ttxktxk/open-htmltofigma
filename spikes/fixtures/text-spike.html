@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<title>Text spike</title>
+<style>
+  /* Inter + Noto Sans Thai ship with the spike (webfonts). DB Ozone X must be installed on the machine. */
+  @font-face { font-family: "Inter"; font-weight: 400; src: url(../fonts/inter-latin-400-normal.woff2) format("woff2"); }
+  @font-face { font-family: "Inter"; font-weight: 500; src: url(../fonts/inter-latin-500-normal.woff2) format("woff2"); }
+  @font-face { font-family: "Inter"; font-weight: 700; src: url(../fonts/inter-latin-700-normal.woff2) format("woff2"); }
+  @font-face { font-family: "Noto Sans Thai"; font-weight: 400; src: url(../fonts/noto-sans-thai-thai-400-normal.woff2) format("woff2"); }
+  @font-face { font-family: "Noto Sans Thai"; font-weight: 500; src: url(../fonts/noto-sans-thai-thai-500-normal.woff2) format("woff2"); }
+  @font-face { font-family: "Noto Sans Thai"; font-weight: 700; src: url(../fonts/noto-sans-thai-thai-700-normal.woff2) format("woff2"); }
+
+  body { margin: 0; padding: 24px; background: #fff; color: #111; font-family: sans-serif; }
+  h2 { font: 700 14px/20px sans-serif; margin: 24px 0 8px; color: #666; }
+  .grid { display: grid; grid-template-columns: repeat(3, 340px); gap: 16px 24px; }
+  .case { width: 320px; font-size: 20px; line-height: 28px; margin: 0; outline: 1px dashed #ddd; }
+  .ozone { font-family: "DB Ozone X", "Noto Sans Thai"; }
+  .mixed { font-family: "Inter", "Noto Sans Thai"; }
+</style>
+</head>
+<body>
+  <!-- data-case = <family>-<sample>-<weight>. One text node per case, no extra whitespace. -->
+  <h2>A · DB Ozone X (fallback Noto Sans Thai)</h2>
+  <div class="grid" id="ozone"></div>
+  <h2>B · Inter + Noto Sans Thai</h2>
+  <div class="grid" id="mixed"></div>
+
+<script>
+  // Built by script only to keep the fixture short; capture runs after render.
+  const SAMPLES = {
+    thai: 'ตรวจสอบและรวมคำร้องแจ้งซ่อมอุปกรณ์ตัวอย่าง ระบุรายละเอียดเพื่อแจ้งซ่อมอุปกรณ์ตัวอย่างชิ้นที่ 1 ถึงชิ้นที่ 7 น้ำท่วมปี่ก๊วยเตี๋ยว สิ้นสุดประกันวันที่ 30 ก.ย. 2569',
+    mix:  'เลขที่คำร้อง TEST-REQUEST-00001 ส่งโดย Admin (DEMO) เมื่อ 25 Sep 2026 สถานะ In Progress ผู้ใช้งาน จัดการที่',
+    label: 'ข้อมูลผู้ยื่นคำร้อง',
+  };
+  for (const [fam, gridId] of [['ozone', 'ozone'], ['mixed', 'mixed']]) {
+    const grid = document.getElementById(gridId);
+    for (const s of Object.keys(SAMPLES)) for (const w of [400, 500, 700]) {
+      const p = document.createElement('p');
+      p.className = 'case ' + fam;
+      p.style.fontWeight = w;
+      p.dataset.case = `${fam}-${s}-${w}`;
+      p.textContent = SAMPLES[s];
+      grid.appendChild(p);
+    }
+  }
+</script>
+</body>
+</html>

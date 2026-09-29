@@ -1,0 +1,92 @@
+<style>
+  body { font: 12px/1.45 Inter, system-ui, sans-serif; margin: 0; padding: 12px; color: var(--figma-color-text, #222); background: var(--figma-color-bg, #fff); }
+  h3 { font-size: 12px; margin: 14px 0 6px; }
+  textarea, input[type=text], select { width: 100%; box-sizing: border-box; font: 11px/1.4 ui-monospace, monospace; border: 1px solid var(--figma-color-border, #ccc); border-radius: 4px; padding: 6px; background: transparent; color: inherit; }
+  textarea { height: 150px; }
+  button { margin: 6px 6px 0 0; padding: 6px 10px; border-radius: 5px; border: 1px solid var(--figma-color-border, #ccc); background: var(--figma-color-bg-secondary, #f5f5f5); color: inherit; cursor: pointer; }
+  button.primary { background: #0d99ff; border-color: #0d99ff; color: #fff; }
+  button:disabled { opacity: .5; cursor: default; }
+  #status { margin-top: 10px; white-space: pre-wrap; font: 11px/1.45 ui-monospace, monospace; max-height: 260px; overflow: auto; border-top: 1px solid var(--figma-color-border, #ddd); padding-top: 8px; }
+  .err { color: #e03e1a; }
+  .row { display: flex; gap: 8px; align-items: center; }
+</style>
+
+<h3>1 · Load JSON</h3>
+<input type="file" id="file" accept=".json">
+<div id="fileinfo"></div>
+
+<h3>2 · Font map (edit for DB Ozone X – check names with "Find fonts")</h3>
+<textarea id="config">{
+  "fontMap": {},
+  "families": {
+    "DB Ozone X": { "400": "Regular", "500": "Medium", "700": "Bold" },
+    "Noto Sans Thai": { "400": "Regular", "500": "Medium", "700": "Bold" },
+    "Inter": { "400": "Regular", "500": "Medium", "700": "Bold" }
+  },
+  "fallback": { "family": "Inter", "style": "Regular" }
+}</textarea>
+<div class="row"><input type="text" id="q" value="ozone" style="flex:1"><button id="find">Find fonts</button></div>
+
+<h3>3 · Run</h3>
+<button class="primary" id="textspike" disabled>Text spike (text-lines.json)</button>
+<div class="row">
+  <button class="primary" id="import" disabled>Import (design.json)</button>
+  <select id="linemode" style="width:auto"><option value="ls">lines: U+2028</option><option value="nl">lines: \n</option><option value="none">lines: Figma wraps</option></select>
+</div>
+<button id="png" disabled>Download Figma PNG</button>
+<button id="dl" disabled>Download result JSON</button>
+
+<div id="status">Load design.json from capture.js (out\&lt;file&gt;\design.json) — or out\text-lines.json for the text spike.</div>
+
+<script>
+  const $ = id => document.getElementById(id);
+  let data = null, lastResult = null;
+  const log = (s, cls) => { $('status').innerHTML = ''; const d = document.createElement('div'); if (cls) d.className = cls; d.textContent = s; $('status').appendChild(d); };
+  const cfg = () => JSON.parse($('config').value);
+  function download(name, blob) { const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; document.body.appendChild(a); a.click(); a.remove(); }
+  function busy(on, what) { ['textspike', 'import', 'png', 'dl', 'find'].forEach(id => $(id).disabled = on || (id === 'textspike' && !(data && data.type === 'h2f-text-spike')) || (id === 'import' && !(data && data.schemaVersion)) || ((id === 'png' || id === 'dl') && !lastResult)); if (on) log(what + '…'); }
+
+  $('file').onchange = async () => {
+    const f = $('file').files[0]; if (!f) return;
+    try {
+      data = JSON.parse(await f.text());
+      const kind = data.type === 'h2f-text-spike' ? `text spike · ${data.cases.length} cases` : data.schemaVersion ? `design.json v${data.schemaVersion} · ${data.capture.source}` : 'unknown JSON';
+      $('fileinfo').textContent = `${f.name} — ${kind} — ${(f.size / 1024).toFixed(0)} KB`;
+      busy(false);
+    } catch (e) { log('Could not read JSON: ' + e.message, 'err'); }
+  };
+  $('find').onclick = () => parent.postMessage({ pluginMessage: { type: 'find-fonts', query: $('q').value } }, '*');
+  const saveCfg = c => parent.postMessage({ pluginMessage: { type: 'save-config', config: c } }, '*');
+  $('textspike').onclick = () => { try { const c = cfg(); saveCfg(c); busy(true, 'Rendering text spike'); parent.postMessage({ pluginMessage: { type: 'text-spike', data, config: c } }, '*'); } catch (e) { log('Font map is not valid JSON: ' + e.message, 'err'); busy(false); } };
+  $('import').onclick = () => { try { const c = cfg(); saveCfg(c); busy(true, 'Importing'); parent.postMessage({ pluginMessage: { type: 'import', data, config: c, lineMode: $('linemode').value } }, '*'); } catch (e) { log('Font map is not valid JSON: ' + e.message, 'err'); busy(false); } };
+  $('png').onclick = () => parent.postMessage({ pluginMessage: { type: 'export-png', rootId: lastResult.rootId, scale: 2, name: lastResult.type === 'import-result' ? 'figma-e2e.png' : 'figma-text-spike.png' } }, '*');
+  $('dl').onclick = () => download(lastResult.type + '.json', new Blob([JSON.stringify(lastResult, null, 2)], { type: 'application/json' }));
+
+  onmessage = e => {
+    const m = e.data.pluginMessage; if (!m) return;
+    if (m.type === 'error') { log('Error: ' + m.message, 'err'); busy(false); return; }
+    if (m.type === 'config') { $('config').value = JSON.stringify(m.config, null, 2); return; }
+    if (m.type === 'progress') { log(`Importing… ${m.done}/${m.total} layers`); return; }
+    if (m.type === 'fonts') { log(Object.keys(m.fams).length ? Object.entries(m.fams).map(([f, s]) => `${f}: ${s.join(', ')}`).join('\n') : 'No family matches.'); return; }
+    if (m.type === 'png') { download(m.name, new Blob([m.bytes], { type: 'image/png' })); return; }
+    lastResult = m; busy(false);
+    const fonts = m.figmaFonts || m.fonts || [];
+    const fontLines = fonts.map(f => `  ${f.status.padEnd(11)} ${f.requested} → ${f.resolved} (${f.count})`).join('\n');
+    if (m.type === 'text-spike-result') {
+      log('TEXT SPIKE — lines match Chrome per method\n' +
+        m.summary.map(s => `  ${s.method.padEnd(12)} ${String(s.pct).padStart(3)}% (${s.ok}/${s.total})` + (s.maxLineWidthDeltaPx != null ? ` max line Δw ${s.maxLineWidthDeltaPx}px` : '') + (s.u2028Kept != null ? ` U+2028 kept: ${s.u2028Kept}` : '')).join('\n') +
+        '\n\nFONTS\n' + fontLines + '\n\nDownload result JSON + PNG and send both back.');
+    } else {
+      const r = m.report;
+      log(`IMPORT (${m.lineMode}) — ${m.elements} elements\n` +
+        `  geometry > ±2px : ${m.geometryFailures}${r.geometry.slice(0, 8).map(g => `\n    ${g.nodeId} ${g.name} Δ${g.maxDeltaPx}px`).join('')}\n` +
+        `  text line mismatch: ${m.textLineMismatch}\n` +
+        `  text overflow > 2px: ${r.text.filter(t => t.overflowPx > 2).length}\n` +
+        `  missing: ${r.missing.length}${r.missing.slice(0, 5).map(x => `\n    ${x.nodeId} ${x.name || ''} ${x.reason}`).join('')}\n` +
+        `  converted (ring->stroke, transform, clip for spread): ${(r.converted || []).length}\n` +
+        `  approximations: ${r.approximations.length}${r.approximations.slice(0, 5).map(x => `\n    ${x.nodeId} ${x.what}`).join('')}\n` +
+        `  capture fallbacks: ${(m.captureReport.fallbacks || []).map(f => f.nodeId + ':' + f.reason).join(', ') || '-'}\n` +
+        `  capture font issues: ${(m.captureReport.fontIssues || []).length}\n\nFONTS\n` + fontLines);
+    }
+  };
+</script>
