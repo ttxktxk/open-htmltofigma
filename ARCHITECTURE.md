@@ -42,6 +42,17 @@ design.html ─► capture/cli.js (Playwright + installed Chrome/Edge) ─► de
    platform font Chrome used (CDP `CSS.getPlatformFontsForNode`) and visual lines from `Range.getClientRects` (line top probed from Chrome);
    inline SVG serialized with computed paint (CSS transforms on `<svg>` baked in); canvas / maps / native controls / unsafe SVG / blob images
    as isolated screenshots.
+   **`::before` / `::after`**: every rendered pseudo-element (any `content` other than `none`/`normal`, including `""`) becomes a layer
+   named `<parent name>::before|::after`. Geometry = Chrome's own box model of the pseudo-element (CDP `DOM.getBoxModel`; transformed
+   quad → Figma `relativeTransform`, sub-pixel sizes kept); paint from `getComputedStyle(el, '::after')`; single-line string content →
+   an editable text child (font from `CSS.getPlatformFontsForNode` on the pseudo-element). Nothing in the page is changed to measure it.
+   Too complex (gradient/url background, `content: url()/counter()/attr()`, icon-font glyph, multi-line text, skew/3D, filter/mask) →
+   isolated screenshot of only that pseudo-element + an `unsupported` entry. Empty ones (no size, no paint) make no layer; every
+   pseudo-element and its result is listed in `report.pseudoElements`.
+   Layer order: DOM order (`::before` before the children, `::after` after them), then checked against Chrome's CSS paint order
+   (`page.js paintOrder`: stacking contexts, z-index, positioned vs in-flow) for every layer the pseudo-element overlaps; if needed it
+   moves to the nearest ancestor frame where the order is right (never out of a clipping, transparent or transformed frame).
+   Otherwise the DOM order is kept and reported.
 4. **design.json** (`schema/design.schema.json`, `schemaVersion 1.0.0`): root = design size at (0,0); every node has a parent-relative `box`
    and a design-relative `absBox`; assets are inline PNG/JPEG; `report` lists fallbacks, unsupported CSS, font issues and overflow.
 5. **Plugin** (`figma-plugin/code.js`, plain JS): creates Frames / Text (fixed line breaks) / SVG vectors / image fills, maps fonts via the
@@ -49,3 +60,27 @@ design.html ─► capture/cli.js (Playwright + installed Chrome/Edge) ─► de
 
 `spikes/` holds the prototype these files were promoted from; `npm run test:regression` asserts that production and prototype still
 produce the same design.json for the two real baseline pages.
+
+---
+
+## MVP-B: Local Helper (`local-helper/`) + one-click plugin
+
+```
+plugin UI (sandboxed iframe, Origin "null")
+  ── POST /capture (HTML bytes, Bearer token) ──► http://localhost:43127  local-helper/server.js (bound to 127.0.0.1)
+                                                     └─ capture-service.js: temp dir ─► spawn node capture/cli.js ─► read design.json ─► delete temp
+  ◄── GET /jobs/<id> (stage), GET /jobs/<id>/result (design + summary) ──
+plugin UI ── postMessage "import" (same message as a design.json file) ──► figma-plugin/code.js renderer ──► layers
+```
+
+- **No duplicated capture logic.** The Helper runs `capture/cli.js` as a child process with an argument array (no shell).
+  `cli.js` only gained opt-in progress lines (`H2F_PROGRESS=1`); its output files are unchanged, so the MVP-A regression still applies.
+- **HTML never passes through the Figma main thread.** The UI uploads the `File` itself (XHR, upload progress) and polls the job.
+  The main thread gets the finished design through the existing `import` message; it only stores the Helper token (clientStorage).
+- **Security:** the plugin uses http://localhost:43127 (Figma's devAllowedDomains accepts localhost but not IP literals); the Helper is bound to 127.0.0.1 only; random token per Helper start (printed in its window, pasted once into the plugin);
+  only Origin `null` (plugin UI) or no Origin (scripts) accepted, Host must be localhost / localhost:<port> / 127.0.0.1:<port> (DNS rebinding);
+  CORS + Private-Network-Access headers only for Origin `null`; no path from requests is ever opened; file names sanitized;
+  .html/.htm + HTML content check; 100 MB limit (Content-Length and streamed count); 5 min capture timeout;
+  temp dir per job removed in `finally` (success, error, timeout, Ctrl+C); logs contain name, size, status and time only.
+- **Jobs** run one at a time; results stay in memory until collected once (or 10 min), then are dropped.
+- **Plugin network access:** `devAllowedDomains` = `http://localhost:43127` only; `allowedDomains` = `none`.

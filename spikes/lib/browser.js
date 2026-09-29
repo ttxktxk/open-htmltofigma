@@ -2,10 +2,15 @@
 const { chromium } = require('playwright-core');
 const { isolatedWorld } = require('./iso');
 
+// Software rasterization: GPU raster (default in headless Chrome on Windows) anti-aliases vector edges slightly
+// differently from run to run, so element screenshots (asset ids) were not reproducible there. Linux containers
+// already rasterize in software, so this matches the path the baselines were made on.
+const LAUNCH_ARGS = ['--disable-gpu'];
+
 async function launch() {
   const tries = [];
-  if (process.env.CHROME_PATH) tries.push({ executablePath: process.env.CHROME_PATH });
-  tries.push({ channel: 'chrome' }, { channel: 'msedge' }, {});
+  if (process.env.CHROME_PATH) tries.push({ executablePath: process.env.CHROME_PATH, args: LAUNCH_ARGS });
+  tries.push({ channel: 'chrome', args: LAUNCH_ARGS }, { channel: 'msedge', args: LAUNCH_ARGS }, { args: LAUNCH_ARGS });
   const errors = [];
   for (const opts of tries) {
     try {

@@ -1,10 +1,14 @@
-// HTML to Figma (Playwright capture) — MVP-A plugin (plain JS, no build step).
+// HTML to Figma (Playwright capture) — plugin main code (plain JS, no build step).
 // Renderer promoted unchanged from spikes/figma-plugin/code.js (tested on two real Claude Design exports).
+// MVP-B: the UI sends the HTML to the Local Helper (npm run helper) itself and passes the returned design here
+// through the same "import" message as a design.json file; this file only stores the Helper token/port.
 //  - "Import":     renders a design.json from `npm run capture` into editable layers, checks geometry against Chrome
 //                  and returns a summary (design size, layers, missing, substituted fonts, unsupported features)
 //  - "Find fonts": lists Figma font families/styles matching a query (to fill the font map)
-figma.showUI(__html__, { width: 480, height: 700, themeColors: true });
+figma.showUI(__html__, { width: 480, height: 760, themeColors: true });
 figma.clientStorage.getAsync('h2f-config').then(function (c) { if (c) figma.ui.postMessage({ type: 'config', config: c }); });
+// Local Helper connection (MVP-B): the UI talks to the Helper directly; only its token/port are remembered here.
+figma.clientStorage.getAsync('h2f-helper').then(function (h) { figma.ui.postMessage({ type: 'helper-settings', settings: h || null }); });
 
 var LS = '\u2028';
 var availableFonts = null;       // "Family::Style" -> true
@@ -374,6 +378,12 @@ figma.ui.onmessage = async function (msg) {
       var fams = {};
       Object.keys(availableFonts).forEach(function (k) { var p = k.split('::'); if (p[0].toLowerCase().indexOf(q) >= 0) (fams[p[0]] = fams[p[0]] || []).push(p[1]); });
       figma.ui.postMessage({ type: 'fonts', fams: fams });
+    } else if (msg.type === 'get-helper') {
+      figma.ui.postMessage({ type: 'helper-settings', settings: (await figma.clientStorage.getAsync('h2f-helper')) || null });
+    } else if (msg.type === 'save-helper') {
+      await figma.clientStorage.setAsync('h2f-helper', msg.settings);
+    } else if (msg.type === 'notify') {
+      figma.notify(String(msg.text).slice(0, 200), { error: !!msg.error });
     } else if (msg.type === 'save-config') {
       await figma.clientStorage.setAsync('h2f-config', msg.config);
     } else if (msg.type === 'import') {

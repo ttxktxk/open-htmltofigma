@@ -4,8 +4,10 @@
 ขนาด Frame ตรงกับ Design size ของไฟล์ ข้อความไทยตัดบรรทัดตรงกับ Chrome และใช้ฟอนต์ตามที่หน้าเว็บใช้จริง
 
 ```
-design.html ──► npm run capture ──► out\<ชื่อไฟล์>\<กว้าง>x<สูง>\design.json ──► Figma plugin ──► editable layers
-                (Chrome + Playwright)          reference.png, capture-report.json
+แบบปุ่มเดียว (แนะนำ):  Figma plugin ──HTML──► Local Helper (npm run helper, เครื่องนี้เท่านั้น) ──► Chrome + Playwright
+                                    ◄──design data──                                      ──► editable layers
+
+แบบคำสั่ง (fallback):   design.html ──► npm run capture ──► design.json ──► Figma plugin (Advanced) ──► editable layers
 ```
 
 Chrome เป็นตัวจัด layout (รวม JavaScript/React ที่ render หน้า) แล้ว capture วัดผลที่ Chrome วาดจริง
@@ -35,7 +37,62 @@ npm install
 ติดตั้ง plugin ใน Figma Desktop: **Plugins → Development → Import plugin from manifest…** → เลือก `figma-plugin\manifest.json`
 (ชื่อ plugin: **HTML to Figma (Playwright capture)**)
 
-## ใช้งาน
+## ใช้งานแบบปุ่มเดียว: Figma Plugin + Local Helper
+
+### 1. เปิด Local Helper (เปิดทิ้งไว้ระหว่างใช้งาน)
+
+```powershell
+cd C:\path\to\open-htmltofigma
+npm run helper
+```
+
+หน้าต่างจะแสดง:
+
+```
+Open HTML to Figma — Local Helper 1.0.0
+  listening on http://localhost:43127  (bound to 127.0.0.1 only — this computer)
+  token:  <ข้อความสุ่ม>
+```
+
+**token** เปลี่ยนทุกครั้งที่เปิด Helper ใหม่ — plugin จะขอให้วางครั้งแรก แล้วจำไว้จนกว่า Helper จะเริ่มใหม่
+ปิด Helper ด้วย **Ctrl+C**
+
+### 2. ใน Figma Desktop
+
+1. **Plugins → Development → HTML to Figma (Playwright capture)** — ด้านบนต้องขึ้น **Local Helper: Connected**
+   (ครั้งแรก: วาง token จากหน้าต่าง Helper → **Connect**)
+2. ลากไฟล์ HTML จาก Claude Design มาวางที่ **Drop Claude Design HTML here** หรือกด **Choose HTML**
+3. (ถ้าต้องการ) **Design root**: Auto / All screens / Selector และ **Expand** สำหรับกล่องที่ scroll
+4. กด **Convert & Import** — ดูความคืบหน้า Uploading → Rendering → Measuring → Building design data → Importing to Figma → Complete
+5. หลัง import จะแสดง Design size, จำนวน layer, layer ที่หาย, ฟอนต์ที่ถูกแทน, feature ที่ไม่รองรับ
+
+ไฟล์ที่มีหลายหน้าจอ: plugin แสดงรายการให้เลือก **Import only this** หรือ **Import all screens**
+
+**ความปลอดภัย:** plugin ติดต่อ Helper ที่ `http://localhost:43127` · Helper เปิดรับเฉพาะในเครื่องนี้ (bind `127.0.0.1` เครื่องอื่นในเครือข่ายเข้าไม่ได้) ต้องมี token ทุกคำขอ รับเฉพาะไฟล์ที่ผู้ใช้เลือก (≤ 100 MB, .html/.htm)
+เก็บไว้ในโฟลเดอร์ temp แบบสุ่มระหว่าง capture และลบทันทีทั้งกรณีสำเร็จและผิดพลาด ไม่ส่งข้อมูลออกอินเทอร์เน็ต
+log บันทึกเฉพาะชื่อไฟล์ ขนาด สถานะ และเวลา
+
+| อาการ | วิธีแก้ |
+| --- | --- |
+| **Local Helper: Not running** | เปิด PowerShell ในโฟลเดอร์โปรเจกต์ → `npm run helper` → กด **Retry connection** |
+| ขอ token ใหม่ | Helper ถูกเปิดใหม่ — คัดลอก token จากหน้าต่าง Helper มาวาง |
+| `Port 43127 … already used` | ปิดโปรแกรมที่ใช้ port (หน้าต่าง Helper จะบอกคำสั่งหา process) หรือถ้าเป็น Helper อีกหน้าต่าง ให้ใช้หน้าต่างนั้น |
+| `Chrome or Microsoft Edge was not found` | ติดตั้ง Chrome/Edge หรือ `$env:CHROME_PATH = "C:\Program Files\Google\Chrome\Application\chrome.exe"` ก่อน `npm run helper` |
+| capture เกิน 5 นาที | `npm run helper -- --timeout 10` |
+| ไฟล์ใหญ่กว่า 100 MB | `npm run helper -- --max-mb 200` |
+
+ตัวเลือกของ Helper: `npm run helper -- --help` · ทดสอบจาก PowerShell โดยไม่ใช้ Figma:
+
+```powershell
+$token = "<token จากหน้าต่าง Helper>"
+Invoke-RestMethod http://localhost:43127/health
+$f = "C:\path\to\design.html"
+$name = [uri]::EscapeDataString([IO.Path]::GetFileName($f))
+Invoke-WebRequest -UseBasicParsing -Method Post -Uri "http://localhost:43127/capture?wait=1&name=$name" `
+  -Headers @{ Authorization = "Bearer $token" } -ContentType "application/octet-stream" -InFile $f -OutFile result.json
+```
+
+## ใช้งานแบบคำสั่ง (fallback)
 
 ### 1. Capture
 
@@ -65,14 +122,14 @@ browser viewport ตั้งเท่ากับ Design size ให้เอ�
 
 ### 2. Import ใน Figma
 
-1. เปิด **Plugins → Development → HTML to Figma (Playwright capture)**
-2. **Choose File** → `design.json` จากขั้นที่ 1
-3. (ครั้งแรก) เปิด **Fonts** → พิมพ์ `ozone` → **Find fonts** → ถ้าชื่อ style ไม่ใช่ `Regular / Medium / Bold` ให้แก้ใน font map
-   เช่น `"DB Ozone X": { "400": "Regular", "500": "Med", "700": "Bold" }` — plugin จำค่าไว้ให้
-4. **Import to Figma**
+1. เปิด **Plugins → Development → HTML to Figma (Playwright capture)** → เปิด **Advanced / Fallback**
+2. เลือก `design.json` จากขั้นที่ 1
+3. (ครั้งแรก) ในส่วน **Fonts** พิมพ์ `ozone` → **Find fonts** → ถ้าชื่อ style ไม่ใช่ `Regular / Medium / Bold` ให้แก้ใน font map
+   เช่น `"DB Ozone X": { "400": "Regular", "500": "Med", "700": "Bold" }` — plugin จำค่าไว้ให้ (ใช้กับแบบปุ่มเดียวด้วย)
+4. **Import design.json**
 
-หลัง import plugin แสดงสรุป: **Design size · จำนวน layer · layer ที่หาย · ฟอนต์ที่ถูกแทน · feature ที่ไม่รองรับ** · ภาพที่ใช้แทน · geometry / การตัดบรรทัด
-กด **Download result JSON** แล้วตรวจอัตโนมัติได้ด้วย:
+หลัง import (ทั้งสองแบบ) plugin แสดงสรุป: **Design size · จำนวน layer · layer ที่หาย · ฟอนต์ที่ถูกแทน · feature ที่ไม่รองรับ** · ภาพที่ใช้แทน · geometry / การตัดบรรทัด
+ใน **Advanced / Fallback** กด **Download result JSON** แล้วตรวจอัตโนมัติได้ด้วย:
 
 ```powershell
 npm run check:import -- "C:\Users\<you>\Downloads\import-result.json"
@@ -113,20 +170,23 @@ Exit code: `0` สำเร็จ · `1` capture ล้มเหลว · `2` �
 
 | รองรับ | ยังไม่รองรับ (ข้าม + ขึ้นรายงาน) |
 | --- | --- |
-| bundled HTML ไฟล์เดียว, หน้าที่ render ด้วย JavaScript/React | z-index / stacking context (ใช้ลำดับ DOM) |
+| bundled HTML ไฟล์เดียว, หน้าที่ render ด้วย JavaScript/React | z-index / stacking context ของ element ทั่วไป (ใช้ลำดับ DOM; เฉพาะ pseudo-element ที่จัดตาม z-index) |
 | Design size อัตโนมัติ, หลายขนาด, หน้ายาว, หลายหน้าจอในไฟล์เดียว | `backdrop-filter`, `filter`, `mask` |
 | Frame ตามโครง DOM, พิกัดตายตัวจาก Chrome (ไม่มี Auto Layout) | `clip-path` (วงกลม/รูปร่าง) |
 | สีพื้น, border 4 ด้าน (dashed/dotted), radius 4 มุม, overflow clip, `box-shadow` (ring = stroke) | `transform` บน element ที่มีลูก (วางลูกตามกรอบบนจอ) |
 | Text แก้ไขได้ ฟอนต์ต่อช่วง (ไทย/อังกฤษ) ตัดบรรทัดตาม Chrome, ค่าใน input/textarea | `position: fixed/sticky` (วางตามตำแหน่งตอน capture) |
-| inline SVG เป็น vector (gradient, กลับด้าน/หมุนด้วย CSS transform) | `::before` `::after`, shadow DOM |
+| inline SVG เป็น vector (gradient, กลับด้าน/หมุนด้วย CSS transform) | shadow DOM |
+| `::before` / `::after` แบบภาพง่าย ๆ เป็น layer แก้ไขได้ ชื่อ `<parent>::before` / `<parent>::after` (สีพื้น, border, radius, opacity, shadow, หมุน/ย่อขยาย, ข้อความบรรทัดเดียว, เส้นบางกว่า 1px) ลำดับชั้นตาม z-index ของ Chrome | `::before` / `::after` ที่ซับซ้อน (gradient/ภาพพื้นหลัง, `content: url()/counter()`, ไอคอนฟอนต์, ข้อความหลายบรรทัด, skew/3D) → เป็นภาพ + ขึ้นรายงาน |
 | `<img>`, gradient/ภาพพื้นหลัง, `<canvas>`, แผนที่, `blob:` image, native control → ภาพ | glyph baseline ของ Figma ต่างจาก Chrome ได้ไม่เกิน 1px |
 | รายงานฟอนต์ที่ถูกแทน, fallback ของ Chrome และ CSS ที่ไม่รองรับ | |
 
 ## ตรวจคุณภาพ (สำหรับผู้พัฒนา)
 
 ```powershell
-npm test                    # fixture ขนาดต่าง ๆ: schema, Root Frame, mock import, determinism, exit code
+npm test                    # fixture ขนาดต่าง ๆ: schema, Root Frame, mock import, determinism, exit code, ::before/::after (test\fixtures)
 npm run test:regression     # หน้าจริง 2 หน้า (ต้องวางไฟล์ใน regression\inputs\ — ดู regression\README.md)
+npm run test:helper         # Local Helper: token, CORS, ขนาด/ชนิดไฟล์, ชื่อไฟล์ไทย, temp cleanup, timeout, Ctrl+C, หน้าจริงเทียบ CLI
+npm run test:plugin         # plugin UI ใน sandboxed iframe + Helper จริง + code.js บน Figma mock (Convert & Import ปุ่มเดียว)
 npm run preview -- "out\<ไฟล์>\<กxส>\design.json"   # วาด design.json กลับเป็นภาพโดยไม่ใช้ Figma (rerender.png)
 ```
 
@@ -137,8 +197,9 @@ npm run preview -- "out\<ไฟล์>\<กxส>\design.json"   # วาด desi
 ```
 capture\          cli.js (npm run capture), page.js (เดิน DOM ใน browser), browser.js, iso.js
 schema\           design.schema.json (schemaVersion 1.0.0)
-figma-plugin\     manifest.json, code.js, ui.html — plugin สำหรับ design.json (plain JS ไม่ต้อง build)
-test\             smoke.js, regression.js, check-import.js, mock-figma.js, render-design.js
+local-helper\     server.js (npm run helper), capture-service.js (เรียก capture\cli.js), temp-files.js
+figma-plugin\     manifest.json, code.js, ui.html — plugin (plain JS ไม่ต้อง build)
+test\             smoke.js, regression.js, helper.js, plugin-ui.js, check-import.js, mock-figma.js, render-design.js
 regression\       baselines.json (ค่าที่คาดไว้ของหน้าจริงที่ผ่านแล้ว), inputs\ (ไฟล์จริง — ไม่ขึ้น git)
 spikes\           prototype ที่ผ่านการทดสอบ ใช้เป็น regression reference (ห้ามลบ)
 manifest.json, code.ts, ui.html   plugin เดิม (import HTML ภายใน Figma โดยตรง) — ยังใช้ได้ตามเดิม

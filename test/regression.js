@@ -12,7 +12,7 @@
 //   5. rerender(design.json) vs Chrome reference.png: layout difference <= maxLayoutPct
 //   6. mock Figma import with the production plugin == the spike plugin (layers, conversions, fonts); no missing layers
 const fs = require('fs'), path = require('path');
-const { baselineInput, INPUTS_DIR, ROOT, PROD_CLI, SPIKE_CLI, runCapture, readJson, comparable, firstDiff, nodeStats, pixelDiff, harness } = require('./lib');
+const { assetRefs, explainAssetDiff, baselineInput, INPUTS_DIR, ROOT, PROD_CLI, SPIKE_CLI, runCapture, readJson, comparable, firstDiff, nodeStats, pixelDiff, harness } = require('./lib');
 const { mockImport } = require('./mock-figma');
 const { launch, openPage } = require('../capture/browser');
 
@@ -52,6 +52,13 @@ async function pageFontCss(browser, file, cssPath) {
 
 function unsupportedSummary(rep) { const s = {}; for (const u of rep.unsupported) s[u.property] = (s[u.property] || 0) + 1; return s; }
 function convertedSummary(m) { const s = {}; for (const c of m.report.converted || []) { const k = c.what.split(' (')[0].replace(/ -?\d.*$/, ''); s[k] = (s[k] || 0) + 1; } return s; }
+// on a mismatch, print why the asset ids differ (dimensions, pixels, PNG bytes) so the cause is visible in the log
+function explain(title, a, b) {
+  const rows = explainAssetDiff(a, b);
+  if (!rows.length) return;
+  console.log(`        ${title}: ${rows.length} differing asset reference(s)`);
+  for (const r of rows) console.log(`          ${r.ref}: ${r.size}, same pixels: ${r.samePixels}, differing px: ${r.diffPx}, max channel diff: ${r.maxChannelDiff}, png bytes: ${r.pngBytes}`);
+}
 function fontStatus(m) { return m.fonts.map(f => `${f.requested}=${f.status}`).sort(); }
 
 (async () => {
@@ -84,25 +91,32 @@ function fontStatus(m) { return m.fonts.map(f => `${f.requested}=${f.status}`).s
 
     // 2. production == spike
     const spike = cap(SPIKE_CLI, 'spike');
-    const diff = spike.dir ? firstDiff(comparable(norm), comparable(readJson(path.join(spike.dir, 'design.normalized.json')))) : { path: 'spike capture failed', a: '', b: spike.r.out.slice(-200) };
+    const diff = spike.dir ? firstDiff(comparable(norm, file), comparable(readJson(path.join(spike.dir, 'design.normalized.json')), file)) : { path: 'spike capture failed', a: '', b: spike.r.out.slice(-200) };
     t.check(`${b.name}: production design.json == spikes/capture.js (no regression)`, !diff, diff ? `${diff.path}: ${diff.a} vs ${diff.b}` : '');
+    if (diff && spike.dir) explain('production vs spike', d, readJson(path.join(spike.dir, 'design.json')));
 
     // 3. determinism
     const again = cap(PROD_CLI, 'production-2');
-    const d2 = again.dir && firstDiff(norm, readJson(path.join(again.dir, 'design.normalized.json')));
+    const d2 = again.dir && firstDiff(comparable(norm), comparable(readJson(path.join(again.dir, 'design.normalized.json'))));
     t.check(`${b.name}: re-capture gives identical normalized design.json`, again.dir && !d2, d2 ? `${d2.path}: ${d2.a} vs ${d2.b}` : '');
+    if (d2) explain('capture 1 vs capture 2', d, readJson(path.join(again.dir, 'design.json')));
+    const refs = assetRefs(d);
+    // orphans = screenshots taken for an SVG fallback that was then dropped because it was clipped (existing behaviour, harmless)
+    t.check(`${b.name}: every asset reference in the tree resolves in the assets map (${refs.used} referenced)`, !refs.missing.length,
+      `missing: ${refs.missing.join(', ') || '-'} · unreferenced: ${refs.orphan.length}`);
+    t.check(`${b.name}: no absolute input/temp folder in design.json`, !/file:\/\/\/|[A-Za-z]:\\\\|\/regression\/inputs\//.test(JSON.stringify({ ...d, assets: null })));
 
     // 4. structure, line breaks, fonts, unsupported
-    const st = nodeStats(d);
     // glyphs none of the page fonts have (e.g. "●") fall back to an OS font whose name differs per machine: not part of the baseline
     const osFallback = new Set((rep.fontIssues || []).filter(f => f.issue === 'browser-fallback').map(f => f.postScript));
-    st.fonts = st.fonts.filter(f => !osFallback.has(f));
-    if (UPDATE) Object.assign(b, { layers: st.total, layerTypes: st.types, fonts: st.fonts, textLines: st.lines, unsupported: unsupportedSummary(rep) });
+    const st = nodeStats(d, osFallback);
+    if (UPDATE) Object.assign(b, { layers: st.total, layerTypes: st.types, fontFaces: st.faces, textLines: st.lines, unsupported: unsupportedSummary(rep) });
     t.check(`${b.name}: ${b.layers} layers (${Object.entries(b.layerTypes).map(([k, v]) => k + ' ' + v).join(', ')})`, st.total === b.layers && !firstDiff(st.types, b.layerTypes),
       `got ${st.total} ${JSON.stringify(st.types)}`);
     const lineDiff = Object.keys({ ...b.textLines, ...st.lines }).filter(k => b.textLines[k] !== st.lines[k]);
     t.check(`${b.name}: line breaks of all ${Object.keys(b.textLines).length} text layers = baseline`, !lineDiff.length, lineDiff.slice(0, 5).join(', '));
-    t.check(`${b.name}: fonts used by Chrome = baseline`, !firstDiff(st.fonts, b.fonts), `got ${st.fonts.join(', ')}`);
+    t.check(`${b.name}: font faces used by Chrome = baseline (family|weight|style)`, !firstDiff(st.faces, b.fontFaces),
+      `got ${st.faces.join(', ')} · PostScript names on this machine: ${st.fonts.join(', ')}`);
     const noPrimaryFallback = !(rep.primaryFontFallback || []).length;
     t.check(`${b.name}: first CSS font used everywhere (no silent font fallback)`, noPrimaryFallback, JSON.stringify(rep.primaryFontFallback).slice(0, 200));
     t.check(`${b.name}: unsupported CSS = baseline (known MVP-A limits only)`, !firstDiff(unsupportedSummary(rep), b.unsupported), JSON.stringify(unsupportedSummary(rep)));

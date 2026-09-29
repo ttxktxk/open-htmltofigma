@@ -102,12 +102,66 @@
       decoration: /underline/.test(cs.textDecorationLine) ? 'underline' : /line-through/.test(cs.textDecorationLine) ? 'line-through' : 'none',
     };
   }
-  function hasPseudo(el) {
-    for (const w of ['::before', '::after']) {
-      const c = getComputedStyle(el, w).content;
-      if (c && c !== 'none' && c !== 'normal' && c !== '""') return true;
+  // ---------------------------------------------------------------- ::before / ::after
+  // A rendered pseudo-element becomes a "pseudo-pending" child of its host: ::before in front of the host's
+  // children, ::after behind them (DOM order). capture/cli.js reads its exact geometry from Chrome's box model
+  // (CDP) and then calls pseudoPaint() — nothing in the page is moved or restyled to measure it.
+  const PSEUDO_DEFAULTS = { filter: 'none', backdropFilter: 'none', mixBlendMode: 'normal', clipPath: 'none', maskImage: 'none' };
+  function cssString(v) {   // computed content: exactly one quoted string -> its text, otherwise null
+    const m = /^"((?:[^"\\]|\\[\s\S])*)"$/.exec(v);
+    return m ? m[1].replace(/\\([0-9a-fA-F]{1,6}) ?|\\([\s\S])/g, (all, hex, ch) => hex ? String.fromCodePoint(parseInt(hex, 16)) : ch) : null;
+  }
+  function pseudoOf(el, which) {
+    const cs = getComputedStyle(el, '::' + which);
+    const c = cs.content;
+    if (!c || c === 'none' || c === 'normal' || cs.display === 'none') return null;
+    return { type: 'pseudo-pending', which, hostId: el.getAttribute('data-h2f-id') };
+  }
+  // Paint of one pseudo-element. quad = its border-box quad from Chrome's box model (viewport coords, transformed).
+  // complex = reasons it cannot be drawn as editable layers (-> captured as an image and reported).
+  function pseudoPaint(hostId, which, quad) {
+    const el = document.querySelector(`[data-h2f-id="${hostId}"]`);
+    const cs = getComputedStyle(el, '::' + which);
+    const id = hostId + ':' + which;
+    const before = unsupported.length;
+    const complex = [];
+    let text = null;
+    if (cs.content !== '""') {
+      text = cssString(cs.content);
+      if (text == null) complex.push('content ' + cs.content.slice(0, 60));
+      else if (/[\uE000-\uF8FF]/.test(text) || ICON_FONT.test(cs.fontFamily)) complex.push('icon-font glyph');
+      else if (!/^pre/.test(cs.whiteSpace)) text = text.replace(/\s+/g, ' ');
+      if (text != null && !text.trim()) text = null;
+      if (text != null && /\n/.test(text)) complex.push('multi-line content');
     }
-    return false;
+    if (cs.backgroundImage && cs.backgroundImage !== 'none') complex.push('background-image ' + cs.backgroundImage.slice(0, 60));
+    for (const k in PSEUDO_DEFAULTS) if (cs[k] && cs[k] !== PSEUDO_DEFAULTS[k]) complex.push(k + ' ' + String(cs[k]).slice(0, 60));
+    let m = null;
+    if (cs.transform && cs.transform !== 'none') {
+      m = new DOMMatrix(cs.transform);
+      if (m.isIdentity) m = null;
+      else if (!m.is2D) complex.push('3D transform');
+      else if (Math.abs(m.a * m.c + m.b * m.d) > 1e-3 || m.a * m.d - m.b * m.c <= 0) complex.push('skew/flip transform');
+      else if (text != null) complex.push('transform on text');
+    }
+    // untransformed border-box size: the quad's sides divided by the matrix scale
+    const side = (i, j) => Math.hypot(quad[j] - quad[i], quad[j + 1] - quad[i + 1]);
+    const box = m ? { width: r2(side(0, 2) / Math.hypot(m.a, m.b)), height: r2(side(0, 6) / Math.hypot(m.c, m.d)) }
+                  : { width: r2(quad[2] - quad[0]), height: r2(quad[7] - quad[1]) };
+    const out = {
+      id, name: nameOf(el) + '::' + which, size: box,
+      matrix: m ? { a: +m.a.toFixed(4), b: +m.b.toFixed(4), c: +m.c.toFixed(4), d: +m.d.toFixed(4) } : null, opacity: r2(+cs.opacity), visible: cs.visibility !== 'hidden',
+      fills: [rgba(cs.backgroundColor)].filter(Boolean).map(color => ({ type: 'solid', color })),
+      border: borders(cs), radius: radii(cs, id, box), effects: shadows(cs),
+      text, complex, zIndex: cs.zIndex,
+    };
+    if (text != null) {
+      out.textStyle = textStyle(cs, el);
+      out.textAlign = cs.textAlign;
+      out.whiteSpace = cs.whiteSpace;
+    }
+    out.unsupported = unsupported.splice(before);   // radii() notes for this pseudo-element
+    return out;
   }
 
   // Untransformed layout box + CSS matrix -> Figma-style affine: local (0,0) maps to (tx, ty) in parent coords.
@@ -296,7 +350,6 @@
     for (const [k, ok] of [['filter', 'none'], ['backdropFilter', 'none'], ['mixBlendMode', 'normal'], ['clipPath', 'none'], ['maskImage', 'none']]) {
       if (cs[k] && cs[k] !== ok) unsupported.push({ nodeId: id, property: k, value: String(cs[k]).slice(0, 100), action: 'ignored' });
     }
-    if (hasPseudo(el)) unsupported.push({ nodeId: id, property: 'pseudo-element', value: '::before/::after content', action: 'ignored' });
     if (cs.position === 'fixed' || cs.position === 'sticky') unsupported.push({ nodeId: id, property: 'position', value: cs.position, action: 'approximated' });
 
     if (tag === 'INPUT' || tag === 'TEXTAREA') {
@@ -304,6 +357,8 @@
       if (t) frame.children.push(t);
       return frame;
     }
+    const pb = pseudoOf(el, 'before'), pa = pseudoOf(el, 'after');
+    if (pb) frame.children.push(pb);
     for (const n of el.childNodes) {
       if (n.nodeType === 3) {
         if (!n.data.trim()) continue;
@@ -314,6 +369,7 @@
         if (c) frame.children.push(c);
       }
     }
+    if (pa) frame.children.push(pa);
     // CSS transform: exact for childless frames (Figma relativeTransform); otherwise children keep their on-screen boxes
     if (cs.transform && cs.transform !== 'none') {
       const m = new DOMMatrix(cs.transform);
@@ -608,5 +664,77 @@
     if (w) w.replaceWith(textNodes[ti]);
   }
 
-  window.__h2f = { walkDocument, detectDesign, excludeOtherRoots, measureText, wrapWhole, splitRuns, unwrap };
+  // ---------------------------------------------------------------- CSS paint order (for pseudo-element layers)
+  // Does box a paint above box b? A box is an element or a pseudo-element: { id: data-h2f-id, pseudo: 'before'|'after'|null }.
+  // CSS 2.1 Appendix E, simplified: inside each stacking context, painters are ordered by layer —
+  //   z<0 · in-flow · positioned z:auto/0 (and opacity/transform) · z>0 — then by z-index, then by tree order.
+  // Read-only: uses computed styles and the DOM tree, nothing in the page changes.
+  // Returns 1 (a above b), -1 (a below b) or 0 (could not tell).
+  // A box: { el, pseudo: 'before'|'after'|null, text: true for the element's own text (in-flow content) }
+  const TEXT_STYLE = { position: 'static', zIndex: 'auto', opacity: '1', transform: 'none', filter: 'none', isolation: 'auto', mixBlendMode: 'normal', clipPath: 'none', maskImage: 'none', contain: 'none' };
+  function boxStyle(b) { return b.text ? TEXT_STYLE : getComputedStyle(b.el, b.pseudo ? '::' + b.pseudo : null); }
+  function parentBox(b) { return b.pseudo || b.text ? { el: b.el, pseudo: null } : b.el.parentElement ? { el: b.el.parentElement, pseudo: null } : null; }
+  function flexItem(b) { const p = b.pseudo ? b.el : b.el.parentElement; return !!p && /flex|grid/.test(getComputedStyle(p).display); }
+  function isContext(b, cs) {
+    if (b.text) return false;
+    if (!b.pseudo && b.el === document.documentElement) return true;
+    return (cs.zIndex !== 'auto' && (cs.position !== 'static' || flexItem(b))) || +cs.opacity < 1 || cs.transform !== 'none' ||
+      cs.filter !== 'none' || cs.isolation === 'isolate' || cs.mixBlendMode !== 'normal' || /fixed|sticky/.test(cs.position) ||
+      (cs.clipPath && cs.clipPath !== 'none') || (cs.maskImage && cs.maskImage !== 'none') || /paint|strict|content/.test(cs.contain || '');
+  }
+  const sameBox = (a, b) => !!a && !!b && a.el === b.el && a.pseudo === b.pseudo && !a.text === !b.text;
+  function ctxOf(x) { for (let y = parentBox(x); y; y = parentBox(y)) if (isContext(y, boxStyle(y))) return y; return null; }
+  // For each stacking context from the root down to the box: the painter ordered in that context and its layer.
+  // Painter = nearest positioned box / stacking context between the box and the context, else the box itself (in-flow).
+  function paintChain(b) {
+    const out = [];
+    for (let x = b; ;) {
+      const S = ctxOf(x);
+      if (!S) break;
+      let painter = null, cs = null;
+      for (let y = x; y && !sameBox(y, S); y = parentBox(y)) { const c = boxStyle(y); if (c.position !== 'static' || isContext(y, c)) { painter = y; cs = c; break; } }
+      let key = [1, 0];
+      if (painter) {
+        const z = cs.zIndex === 'auto' ? 0 : +cs.zIndex;
+        key = isContext(painter, cs) && z < 0 ? [0, z] : isContext(painter, cs) && z > 0 ? [3, z] : [2, 0];
+      }
+      out.unshift({ painter: painter || x, key });
+      x = S;
+    }
+    return out;
+  }
+  // tree (pre-)order: element, its ::before, its own text, its children, its ::after
+  // (an element's text is placed before its child elements: text and children are not told apart here)
+  function treeCompare(a, b) {
+    if (sameBox(a, b)) return 0;
+    const rank = x => x.pseudo === 'before' ? 1 : x.text ? 2 : x.pseudo === 'after' ? 3 : 0;
+    if (a.el === b.el) return rank(a) < rank(b) ? -1 : 1;
+    if (a.text) a = { el: a.el, pseudo: 'before' };   // same position relative to other elements
+    if (b.text) b = { el: b.el, pseudo: 'before' };
+    const pos = a.el.compareDocumentPosition(b.el);
+    if (pos & Node.DOCUMENT_POSITION_CONTAINED_BY) return a.pseudo === 'after' ? 1 : -1;     // b inside a's element
+    if (pos & Node.DOCUMENT_POSITION_CONTAINS) return b.pseudo === 'after' ? -1 : 1;         // a inside b's element
+    return pos & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1;
+  }
+  function paintCompare(ra, rb) {
+    const box = r => ({ el: document.querySelector(`[data-h2f-id="${r.id}"]`), pseudo: r.pseudo || null, text: !!r.text });
+    const a = box(ra), b = box(rb);
+    if (!a.el || !b.el) return 0;
+    const ca = paintChain(a), cb = paintChain(b);
+    let i = 0;
+    while (i < ca.length && i < cb.length && sameBox(ca[i].painter, cb[i].painter)) i++;
+    if (i < ca.length && i < cb.length) {
+      const ka = ca[i].key, kb = cb[i].key;
+      if (ka[0] !== kb[0]) return ka[0] > kb[0] ? 1 : -1;
+      if (ka[1] !== kb[1]) return ka[1] > kb[1] ? 1 : -1;
+      return treeCompare(ca[i].painter, cb[i].painter) > 0 ? 1 : -1;
+    }
+    // one box is the stacking context the other one is painted in: a context paints below its own content
+    if (i === ca.length && i < cb.length) return -1;
+    if (i === cb.length && i < ca.length) return 1;
+    return treeCompare(a, b) > 0 ? 1 : treeCompare(a, b) < 0 ? -1 : 0;   // both in-flow in the same painter
+  }
+  function paintOrder(ref, others) { return others.map(o => paintCompare(ref, o)); }
+
+  window.__h2f = { walkDocument, detectDesign, excludeOtherRoots, measureText, wrapWhole, splitRuns, unwrap, pseudoPaint, paintOrder };
 })();

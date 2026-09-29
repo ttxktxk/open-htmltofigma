@@ -4,7 +4,7 @@
 //   node test/mock-figma.js out\<file>\<W>x<H>\design.json [figma-plugin\code.js]
 const fs = require('fs'), path = require('path'), vm = require('vm');
 
-function createMock(fontFamilies) {
+function createMock(fontFamilies, onPost) {
   let idn = 0;
   function node(type) {
     const n = { id: 'm' + (++idn), type, x: 0, y: 0, width: 100, height: 20, children: [], fills: [], pluginData: {},
@@ -27,7 +27,7 @@ function createMock(fontFamilies) {
   const fonts = fontFamilies.flatMap(f => ['Regular', 'Medium', 'Bold'].map(s => ({ fontName: { family: f, style: s } })));
   const outbox = [];
   const figma = {
-    showUI() {}, ui: { postMessage: m => { if (m.type !== 'progress' && m.type !== 'config') outbox.push(m); }, onmessage: null },
+    showUI() {}, ui: { postMessage: m => { if (onPost) onPost(m); else if (m.type !== 'progress' && m.type !== 'config') outbox.push(m); }, onmessage: null },
     listAvailableFontsAsync: async () => fonts,
     loadFontAsync: async f => { if (!fonts.some(x => x.fontName.family === f.family && x.fontName.style === f.style)) throw new Error('font not available ' + JSON.stringify(f)); },
     createText: () => node('TEXT'), createFrame: () => node('FRAME'), createRectangle: () => node('RECTANGLE'), createEllipse: () => node('ELLIPSE'),
@@ -35,7 +35,8 @@ function createMock(fontFamilies) {
     currentPage: node('PAGE'), viewport: { center: { x: 0, y: 0 }, scrollAndZoomIntoView() {} },
     getNodeByIdAsync: async () => ({ exportAsync: async () => new Uint8Array(3) }),
     createNodeFromSvg: svg => { if (!/^<svg[\s>]/.test(svg.trim())) throw new Error('bad svg'); const f = node('FRAME'); const m = svg.match(/width="([\d.]+)" height="([\d.]+)"/); if (m) f.resize(+m[1], +m[2]); return f; },
-    clientStorage: { getAsync: async () => null, setAsync: async () => {} },
+    clientStorage: (() => { const st = {}; return { getAsync: async k => st[k] ?? null, setAsync: async (k, v) => { st[k] = v; } }; })(),
+    notify() {},
   };
   return { figma, outbox };
 }
@@ -50,9 +51,10 @@ async function mockImport(design, codePath = path.join(__dirname, '..', 'figma-p
   await figma.ui.onmessage({ type: 'import', data: design, config, lineMode: opts.lineMode || 'ls' });
   const m = outbox.pop();
   if (!m || m.type === 'error') throw new Error('plugin error: ' + (m && m.message));
+  Object.defineProperty(m, 'page', { value: figma.currentPage, enumerable: false });   // created layers, for geometry checks
   return m;
 }
-module.exports = { mockImport };
+module.exports = { mockImport, createMock };
 
 if (require.main === module) {
   (async () => {

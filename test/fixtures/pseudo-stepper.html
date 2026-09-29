@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Pseudo-element fixture</title>
+<!-- npm test fixture: connectors and other simple visuals drawn with ::before / ::after (no real elements). -->
+<style>
+  *{box-sizing:border-box}
+  body{margin:0;background:#F0F0F0;font-family:Arial,'Liberation Sans',sans-serif;color:#37393D}
+  .screen{width:390px;height:420px;margin:0 auto;background:#fff;padding:16px 18px}
+  h2{font-size:12px;line-height:16px;margin:0 0 8px;font-weight:700}
+  .stepper{display:flex;align-items:flex-start;margin-bottom:18px}
+  .step{width:25%;text-align:center;position:relative;font-size:11px;line-height:16px;color:#787F7F}
+  .circle{width:31px;height:31px;border-radius:50%;border:1px solid #DBDBDB;display:grid;place-items:center;margin:0 auto 5px;background:#fff;font-weight:700}
+  .complete .circle{background:#118840;border-color:#118840;color:#fff}
+  .current .circle{background:#FE5000;border-color:#FE5000;color:#fff}
+
+  /* A: same pattern as the real mobile export — ::after between the circles */
+  .a .step:not(:last-child)::after{content:'';position:absolute;left:calc(50% + 17px);right:calc(-50% + 17px);top:15px;height:2px;background:#DBDBDB}
+  .a .step.complete::after{background:#118840}
+
+  /* B: ::before from the previous circle's centre to this one's, running BEHIND the circles */
+  .b .circle{position:relative;z-index:1}
+  .b .step + .step::before{content:'';position:absolute;left:-50%;right:50%;top:15px;height:2px;background:#DBDBDB}
+  .b .step.link-done::before{background:#118840}
+
+  /* C: other simple visuals + one that is too complex */
+  .kinds{display:flex;gap:14px;flex-wrap:wrap;align-items:center}
+  .box{position:relative;width:64px;height:40px;background:#FFF4EF;border-radius:6px}
+  .hair::after{content:'';position:absolute;left:0;right:0;bottom:0;height:0.5px;background:#37393D}
+  .ring::before{content:'';position:absolute;inset:-4px;border:1.5px solid #FE5000;border-radius:10px;opacity:.6}
+  .badge::after{content:'NEW';position:absolute;top:-8px;right:-8px;background:#970502;color:#fff;font-size:10px;line-height:16px;padding:0 6px;border-radius:8px;font-weight:700}
+  .chev::before{content:'';position:absolute;left:26px;top:12px;width:10px;height:10px;border-right:2px solid #37393D;border-bottom:2px solid #37393D;transform:rotate(45deg)}
+  .grad::before{content:'';position:absolute;left:8px;right:8px;top:16px;height:8px;border-radius:4px;background:linear-gradient(90deg,#FE5000,#FFBF3F)}
+  .empty::after{content:''}
+</style>
+</head>
+<body>
+<div class="screen" data-screen-label="Pseudo stepper">
+  <h2>A · ::after connectors</h2>
+  <nav class="stepper a">
+    <div class="step complete"><div class="circle">✓</div>Info</div>
+    <div class="step current"><div class="circle">2</div>Date</div>
+    <div class="step"><div class="circle">3</div>Confirm</div>
+    <div class="step"><div class="circle">4</div>Done</div>
+  </nav>
+  <h2>B · ::before connectors behind the circles</h2>
+  <nav class="stepper b">
+    <div class="step complete"><div class="circle">✓</div>Info</div>
+    <div class="step current link-done"><div class="circle">2</div>Date</div>
+    <div class="step"><div class="circle">3</div>Confirm</div>
+    <div class="step"><div class="circle">4</div>Done</div>
+  </nav>
+  <h2>C · other pseudo-elements</h2>
+  <div class="kinds">
+    <div class="box hair"></div>
+    <div class="box ring"></div>
+    <div class="box badge"></div>
+    <div class="box chev"></div>
+    <div class="box grad"></div>
+    <div class="box empty"></div>
+  </div>
+</div>
+</body>
+</html>

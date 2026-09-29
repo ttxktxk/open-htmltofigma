@@ -20,10 +20,14 @@
   ],
   "scripts": {
     "capture": "node capture/cli.js",
+    "helper": "node local-helper/server.js",
     "preview": "node test/render-design.js",
     "test": "node test/smoke.js",
     "test:regression": "node test/regression.js",
+    "test:helper": "node test/helper.js",
+    "test:plugin": "node test/plugin-ui.js",
     "check:import": "node test/check-import.js",
+    "asset-diff": "node test/asset-diff.js",
     "build": "tsc -p tsconfig.json",
     "watch": "tsc -p tsconfig.json --watch"
   },

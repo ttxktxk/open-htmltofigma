@@ -36,11 +36,14 @@ const path = require('path');
 const crypto = require('crypto');
 const Ajv2020 = require('ajv/dist/2020');
 const { launch, openPage, stabilize } = require('./browser');
+const { inputDirRedactor } = require('./redact');
 
 const PAGE_JS = fs.readFileSync(path.join(__dirname, 'page.js'), 'utf8');
 const SCHEMA = require('../schema/design.schema.json');
 const MAX_ASSET = 4096;
 const SCHEMA_VERSION = '1.0.0';
+// Machine-readable progress for the Local Helper (opt-in, stdout only; does not change any output file)
+const progress = stage => { if (process.env.H2F_PROGRESS === '1') console.log('::h2f-progress:: ' + stage); };
 
 function parseArgs(argv) {
   const o = { inputs: [], out: path.resolve('out'), width: 1920, height: 992, dpr: 2, expand: [], raster: [], wait: 0, fonts: [], designArea: 'auto', designRoot: null, viewportGiven: false };
@@ -87,9 +90,11 @@ async function captureOne(browser, version, file, o, rootIndex = null) {
   fs.mkdirSync(baseDir, { recursive: true });
   const warnings = [];
 
+  progress('rendering');
   const { context, page, iso } = await openPage(browser, file, o);
-  page.on('pageerror', e => warnings.push('page error: ' + e.message.split('\n')[0]));
-  page.on('requestfailed', r => { if (!/favicon/.test(r.url())) warnings.push(`request failed: ${r.url().slice(0, 120)} (${r.failure() && r.failure().errorText})`); });
+  const redact = inputDirRedactor(file);   // no absolute input/temp folder in design.json or the report
+  page.on('pageerror', e => warnings.push(redact('page error: ' + e.message.split('\n')[0])));
+  page.on('requestfailed', r => { if (!/favicon/.test(r.url())) warnings.push(`request failed: ${redact(r.url()).slice(0, 120)} (${r.failure() && r.failure().errorText})`); });
   if (o.wait) await page.waitForTimeout(o.wait);
   const cdp = iso.cdp;   // all DOM access goes through the isolated world (see lib/iso.js)
   await cdp.send('DOM.enable'); await cdp.send('CSS.enable');
@@ -148,6 +153,7 @@ async function captureOne(browser, version, file, o, rootIndex = null) {
     await stabilize(page, iso);
   }
 
+  progress('measuring');
   await iso.run(PAGE_JS);
 
   // ---- design root + size. The browser viewport is only a render tool: by default it is set to the
@@ -287,6 +293,147 @@ async function captureOne(browser, version, file, o, rootIndex = null) {
     }
   }
 
+  // ---- ::before / ::after (page.js leaves them as "pseudo-pending" children of their host)
+  // Geometry comes from Chrome's box model of the pseudo-element itself (CDP DOM.getBoxModel): exact, transformed
+  // quad included, and nothing in the page is changed to measure it.
+  const pseudoStats = { editable: 0, rasterized: 0, empty: 0, text: 0 };
+  const pseudoList = [];
+  async function pseudoBox(hostId, which) {
+    const { root: d } = await cdp.send('DOM.getDocument', { depth: 0 });
+    const { nodeId } = await cdp.send('DOM.querySelector', { nodeId: d.nodeId, selector: `[data-h2f-id="${hostId}"]` });
+    if (!nodeId) return null;
+    const { node } = await cdp.send('DOM.describeNode', { nodeId, depth: 0 });
+    const ps = (node.pseudoElements || []).find(x => x.pseudoType === which);
+    if (!ps) return null;
+    let model;
+    try { model = (await cdp.send('DOM.getBoxModel', { nodeId: ps.nodeId })).model; } catch (e) { return null; }
+    let fonts = [];
+    try { fonts = (await cdp.send('CSS.getPlatformFontsForNode', { nodeId: ps.nodeId })).fonts; } catch (e) {}
+    return { border: model.border, content: model.content, fonts: fonts.map(f => ({ family: f.familyName, postScript: f.postScriptName, glyphs: f.glyphCount })).sort((a, b) => b.glyphs - a.glyphs) };
+  }
+  const quadBox = (q, sx, sy) => { const xs = [q[0], q[2], q[4], q[6]], ys = [q[1], q[3], q[5], q[7]];
+    const x = Math.min(...xs), y = Math.min(...ys); return { x: r2(x + sx), y: r2(y + sy), width: r2(Math.max(...xs) - x), height: r2(Math.max(...ys) - y) }; };
+  let pageScroll = null;
+  // -> finished node (frame / raster), or null when the pseudo-element paints nothing
+  async function buildPseudo(p, host) {
+    const label = '::' + p.which;
+    const id = p.hostId + ':' + p.which;
+    const rec = { nodeId: id, host: p.hostId, pseudo: label, result: null };
+    pseudoList.push(rec);
+    if (!pageScroll) pageScroll = await iso.eval(() => [scrollX, scrollY]);
+    const [sx, sy] = pageScroll;
+    const geo = await pseudoBox(p.hostId, p.which);
+    if (!geo) {
+      unsupported.push({ nodeId: id, property: 'pseudo-element', value: label, action: 'ignored (no layout box in Chrome)' });
+      rec.result = 'no-box'; return null;
+    }
+    const q = geo.border, absBox = quadBox(q, sx, sy);
+    const paint = await iso.eval((h, w, quad) => window.__h2f.pseudoPaint(h, w, quad), p.hostId, p.which, q);
+    unsupported.push(...paint.unsupported);
+    const complex = paint.complex.slice();
+    // text: one line only (content box no taller than 1.5 line-heights)
+    let lh = null, cbox = null;
+    if (paint.text != null) {
+      cbox = quadBox(geo.content, sx, sy);
+      lh = paint.textStyle.lineHeight || cbox.height;
+      if (cbox.height > lh * 1.5) complex.push('text on more than one line');
+    }
+    const nothing = !paint.fills.length && !paint.border && !paint.effects.length && paint.text == null && !complex.length;
+    if (nothing || (absBox.width === 0 && absBox.height === 0 && !paint.effects.length)) { pseudoStats.empty++; rec.result = 'empty'; return null; }
+    const base = { id, name: paint.name, source: { tag: label, pseudo: p.which }, box: { x: r2(absBox.x - host.absBox.x), y: r2(absBox.y - host.absBox.y), width: absBox.width, height: absBox.height },
+      absBox, opacity: paint.opacity, visible: paint.visible };
+    if (complex.length) {
+      // too complex for editable layers: isolated screenshot of just this pseudo-element, and reported
+      unsupported.push({ nodeId: id, property: 'pseudo-element', value: `${label}: ${complex.join('; ')}`.slice(0, 160), action: 'rasterized (captured as image)' });
+      const node = { ...base, type: 'raster', name: 'raster:' + paint.name, reason: 'pseudo-element' };
+      node.assetId = applyShot(node, await shot(absBox, p.hostId, 'pseudo-element ' + label, 'pseudo-' + p.which));
+      fallbacks.push({ nodeId: id, reason: 'pseudo-element', box: node.absBox, ok: !!node.assetId });
+      stats.raster++; pseudoStats.rasterized++; rec.result = 'rasterized'; return node;
+    }
+    const node = { ...base, type: 'frame', fills: paint.fills, border: paint.border, radius: paint.radius, effects: paint.effects, clip: false, children: [] };
+    if (paint.matrix) {   // simple 2D rotation/scale: Figma relativeTransform (local (0,0) = first quad corner)
+      node.transform = { ...paint.matrix, tx: r2(q[0] + sx - host.absBox.x), ty: r2(q[1] + sy - host.absBox.y), width: paint.size.width, height: paint.size.height };
+      if (paint.radius) node.radius = paint.radius;
+    }
+    if (paint.text != null) {
+      const style = { ...paint.textStyle, lineHeight: lh };
+      const f = geo.fonts[0] || null;
+      const tb = { x: cbox.x, y: r2(cbox.y + (cbox.height - lh) / 2), width: cbox.width, height: r2(lh) };
+      const run = { start: 0, end: paint.text.length, usedFamily: f ? f.family : null, postScript: f ? f.postScript : null };
+      if (!f) fontIssues.push({ nodeId: id + ':t', issue: 'no-platform-font', text: paint.text.slice(0, 20) });
+      else noteFont({ ...run, text: paint.text }, style, id + ':t', paint.text.length);
+      if (geo.fonts.length > 1) warnings.push(`${id}: pseudo-element text uses ${geo.fonts.length} fonts (${geo.fonts.map(x => x.family).join(', ')}) — drawn with ${f.family}`);
+      node.children.push({ id: id + ':t', type: 'text', name: paint.text.slice(0, 40), role: 'content',
+        box: { x: r2(tb.x - absBox.x), y: r2(tb.y - absBox.y), width: tb.width, height: tb.height }, absBox: tb,
+        opacity: 1, visible: true, originalText: paint.text, wrap: 'none',
+        visualLines: [{ start: 0, end: paint.text.length, box: { x: 0, y: 0, width: tb.width, height: tb.height } }], runs: [run], style });
+      stats.text++; pseudoStats.text++;
+    }
+    stats.frame++; pseudoStats.editable++; rec.result = 'editable';
+    return node;
+  }
+  // Layer order of pseudo-elements (Figma: later sibling = on top, parent below its children).
+  // Default = DOM order: ::before in front of the host's children, ::after behind them. Chrome's CSS paint order
+  // (stacking contexts, z-index, positioned vs in-flow; page.js paintOrder) is then checked against every layer the
+  // pseudo-element overlaps. If the default contradicts it — e.g. a connector drawn with ::before that runs under the
+  // circles of the NEIGHBOURING steps (z-index: 1) — the layer moves to the nearest ancestor frame where the order is
+  // right (never out of a frame that clips it, is transparent or transformed). No position -> kept + reported.
+  async function orderPseudos(root) {
+    const parentOf = new Map();
+    (function idx(n) { for (const c of n.children || []) { parentOf.set(c, n); idx(c); } })(root);
+    const pseudoNodes = [];
+    (function f(n) { for (const c of n.children || []) { if (c.source && c.source.pseudo) pseudoNodes.push(c); f(c); } })(root);
+    // node id -> box in the page: n12 element · n12t3 / n12t its text · n12bg its background · n12:after(:t) pseudo-element
+    const refOf = n => { const m = /^(n\d+)(?::(before|after)|(t\d*))?/.exec(n.id); return m ? { id: m[1], pseudo: m[2] || null, text: !!m[3] } : null; };
+    const paints = n => n.visible !== false && (n.type !== 'frame' || (n.fills && n.fills.length) || n.border || (n.effects && n.effects.length));
+    const hit = (a, b) => Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x) > 0.01 && Math.min(a.y + a.height, b.y + b.height) - Math.max(a.y, b.y) > 0.01;
+    const inside = (a, b) => a.x >= b.x - 0.5 && a.y >= b.y - 0.5 && a.x + a.width <= b.x + b.width + 0.5 && a.y + a.height <= b.y + b.height + 0.5;
+    for (const P of pseudoNodes) {
+      const rec = pseudoList.find(r => r.nodeId === P.id);
+      // paint order of the tree without P: node -> index; subtree end index
+      const order = new Map(), last = new Map();
+      let k = 0;
+      (function pre(n) { if (n === P) return; order.set(n, k++); for (const c of n.children || []) pre(c); last.set(n, k - 1); })(root);
+      const others = [];
+      for (const [n] of order) if (n !== root && paints(n) && n.absBox && hit(n.absBox, P.absBox) && refOf(n)) others.push(n);
+      if (!others.length) continue;
+      const rel = await iso.eval((r, o) => window.__h2f.paintOrder(r, o), refOf(P), others.map(refOf));
+      const ok = pos => others.every((x, i) => !rel[i] || (rel[i] > 0 ? order.get(x) < pos : order.get(x) > pos));
+      const host = parentOf.get(P);
+      const curIdx = host.children.indexOf(P);
+      const curPos = curIdx === 0 ? order.get(host) + 0.5 : last.get(host.children[curIdx - 1]) + 0.5;
+      if (ok(curPos)) continue;
+      let placed = null;
+      for (let A = host, branch = null; A && A !== root; branch = A, A = parentOf.get(A)) {
+        if (branch && ((branch.clip && !inside(P.absBox, branch.absBox)) || branch.opacity < 1 || branch.transform || branch.visible === false)) break;
+        const kids = A.children.filter(c => c !== P);
+        const want = branch ? kids.indexOf(branch) + (P.source.pseudo === 'after' ? 1 : 0) : (P.source.pseudo === 'before' ? 0 : kids.length);
+        let best = null;
+        for (let j = 0; j <= kids.length; j++) {
+          const pos = j === 0 ? order.get(A) + 0.5 : last.get(kids[j - 1]) + 0.5;
+          if (ok(pos) && (best == null || Math.abs(j - want) < Math.abs(best - want))) best = j;
+        }
+        if (best != null) { placed = { A, j: best, kids }; break; }
+      }
+      if (!placed) {
+        unsupported.push({ nodeId: P.id, property: 'pseudo-element z-order', value: P.name.slice(0, 80), action: 'approximated (DOM order kept — no layer position matches the CSS paint order)' });
+        if (rec) rec.zOrder = 'approximated';
+        continue;
+      }
+      const { A, j, kids } = placed;
+      host.children.splice(curIdx, 1);
+      kids.splice(j, 0, P);
+      A.children = kids;
+      if (A !== host) {
+        const dx = host.absBox.x - A.absBox.x, dy = host.absBox.y - A.absBox.y;
+        P.box = { ...P.box, x: r2(P.absBox.x - A.absBox.x), y: r2(P.absBox.y - A.absBox.y) };
+        if (P.transform) { P.transform.tx = r2(P.transform.tx + dx); P.transform.ty = r2(P.transform.ty + dy); }
+        parentOf.set(P, A);
+      }
+      if (rec) rec.zOrder = A === host ? `reordered inside ${host.name}` : `moved to ${A.name} (${A.id}) for CSS paint order`;
+    }
+  }
+
   // text: measure first (no DOM changes), then detect fonts with temporary wrappers
   async function buildText(p, parent) {
     const m = await iso.eval((ti, lh) => window.__h2f.measureText(ti, lh), p.ti, p.style.lineHeight);
@@ -377,7 +524,7 @@ async function captureOne(browser, version, file, o, rootIndex = null) {
         } else throw new Error('unsupported image type ' + mime);
       } catch (e) {
         node.type = 'image'; node.assetId = applyShot(node, await shot(node.absBox, node.id, 'image'));
-        fallbacks.push({ nodeId: node.id, reason: 'image-load-failed', detail: e.message, box: node.absBox, ok: !!node.assetId });
+        fallbacks.push({ nodeId: node.id, reason: 'image-load-failed', detail: redact(e.message), box: node.absBox, ok: !!node.assetId });
         stats.image++;
       }
       delete node.src; return node;
@@ -390,6 +537,8 @@ async function captureOne(browser, version, file, o, rootIndex = null) {
     if (node.type === 'text') { stats.text++; return node; }   // form-control text (already complete)
     if (node.type === 'frame') {
       stats.frame++;
+      const pseudos = node.children.filter(c => c.type === 'pseudo-pending');
+      if (pseudos.length) node.children = node.children.filter(c => c.type !== 'pseudo-pending');
       if (node.bgRaster) {
         // gradient / url() backgrounds: isolated shot of the element's own background (content hidden)
         const res = await shot(node.absBox, node.id, 'background', 'self');
@@ -402,12 +551,16 @@ async function captureOne(browser, version, file, o, rootIndex = null) {
         if (res) { stats.bgRaster++; fallbacks.push({ nodeId: node.id, reason: 'background-raster', box: res.box, clipped: res.clipped, ok: true }); }
       }
       delete node.bgRaster;
-      const kids = [];
+      const bgLayer = node.children.length && node.children[0].id === node.id + 'bg' ? [node.children.shift()] : [];
+      const results = [];
       for (const c of node.children) {
         const done = c.type === 'text-pending' ? await buildText(c, node) : await finish(c, node);
-        if (done) { if (done.type === 'text' && c.type === 'text-pending') stats.text++; kids.push(done); }
+        if (done && done.type === 'text' && c.type === 'text-pending') stats.text++;
+        results.push(done || null);
       }
-      node.children = kids;
+      const pre = [], post = [];   // DOM order: ::before in front of the children, ::after behind them (orderPseudos may move them)
+      for (const p of pseudos) { const pn = await buildPseudo(p, node); if (pn) (p.which === 'before' ? pre : post).push(pn); }
+      node.children = bgLayer.concat(pre, results.filter(Boolean), post);
       return node;
     }
     return node;
@@ -422,8 +575,14 @@ async function captureOne(browser, version, file, o, rootIndex = null) {
     '[data-h2f-shotmode] [data-h2f-shot]{opacity:1!important;-webkit-text-fill-color:currentcolor!important}',
     '[data-h2f-shotmode] [data-h2f-shot="self"]{color:transparent!important;-webkit-text-fill-color:transparent!important;box-shadow:none!important}',
     '[data-h2f-shotmode] [data-h2f-shot="self"] *,[data-h2f-shotmode] [data-h2f-shot="self"]::before,[data-h2f-shotmode] [data-h2f-shot="self"]::after{visibility:hidden!important}',
+    // one pseudo-element only: the host paints nothing of its own, its children and its other pseudo-element are hidden
+    '[data-h2f-shotmode] [data-h2f-shot^="pseudo-"]{background:transparent!important;border-color:transparent!important;box-shadow:none!important;outline:none!important;-webkit-text-fill-color:transparent!important;filter:none!important;backdrop-filter:none!important}',
+    '[data-h2f-shotmode] [data-h2f-shot^="pseudo-"] *,[data-h2f-shotmode] [data-h2f-shot="pseudo-before"]::after,[data-h2f-shotmode] [data-h2f-shot="pseudo-after"]::before{visibility:hidden!important}',
+    '[data-h2f-shotmode] [data-h2f-shot="pseudo-before"]::before,[data-h2f-shotmode] [data-h2f-shot="pseudo-after"]::after{-webkit-text-fill-color:currentcolor!important;opacity:1!important}',   // own opacity stays on the layer
   ].join('\n'));
   await finish(root, null);
+  if (pseudoList.length) await orderPseudos(root);
+  progress('building');
   await context.close();
 
   // page coords -> design coords: design origin (area.x, area.y) becomes (0,0) for every absBox and report box
@@ -460,6 +619,7 @@ async function captureOne(browser, version, file, o, rootIndex = null) {
     root, assets,
     report: { fallbacks, unsupported, fontIssues: dedupe(fontIssues), warnings, overflowDesignArea: overflow },
   };
+  if (pseudoList.length) design.report.pseudoElements = { ...pseudoStats, items: pseudoList };   // only on pages that have any
   const ajv = new Ajv2020({ allErrors: true, strict: false });
   const validate = ajv.compile(SCHEMA);
   const valid = validate(design);
@@ -486,6 +646,7 @@ async function captureOne(browser, version, file, o, rootIndex = null) {
     fonts: Object.values(fontUse).sort((a, b) => b.chars - a.chars),
     injectedFonts, primaryFontFallback: Object.values(primaryFallback).sort((a, b) => b.chars - a.chars),
     fontIssues: design.report.fontIssues, fallbacks, unsupportedSummary: unsupportedByProp, unsupported, warnings,
+    pseudoElements: design.report.pseudoElements || null,
   };
   fs.writeFileSync(path.join(outDir, 'capture-report.json'), JSON.stringify(report, null, 2));
   return report;
@@ -521,6 +682,12 @@ function printSummary(r) {
 (async () => {
   const o = parseArgs(process.argv.slice(2));
   const { browser, how, version } = await launch();
+  // Local Helper (parent with an IPC channel) asks us to stop: close the browser properly (Playwright removes its
+  // temporary profile), then exit. Not active when run from the command line.
+  if (process.send) process.on('message', m => { if (m === 'h2f-stop') browser.close().catch(() => {}).finally(() => process.exit(130)); });
+  // Ctrl+C in the Helper's console reaches this child too (Windows sends it to every process in the console):
+  // leave the decision to the Helper, which stops us through the message above.
+  if (process.send) for (const sig of ['SIGINT', 'SIGBREAK']) process.on(sig, () => {});
   console.log(`browser: ${version}  (${how})  ${o.viewportGiven ? `viewport ${o.width}x${o.height}` : 'viewport = design size'} @${o.dpr}x`);
   let failed = 0, exitCode = 0;
   for (const f of o.files) {

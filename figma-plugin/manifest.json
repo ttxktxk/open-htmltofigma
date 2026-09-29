@@ -6,5 +6,9 @@
   "ui": "ui.html",
   "editorType": ["figma"],
   "documentAccess": "dynamic-page",
-  "networkAccess": { "allowedDomains": ["none"] }
+  "networkAccess": {
+    "allowedDomains": ["none"],
+    "devAllowedDomains": ["http://localhost:43127"],
+    "reasoning": "Talks only to the Local Helper running on this computer (npm run helper) to capture the selected HTML file. Nothing is sent to the internet."
+  }
 }

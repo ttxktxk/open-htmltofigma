@@ -1,28 +1,86 @@
 <style>
+  :root { --b: var(--figma-color-border, #d9d9d9); --muted: var(--figma-color-text-secondary, #666); --bg2: var(--figma-color-bg-secondary, #f5f5f5); }
   body { font: 12px/1.45 Inter, system-ui, sans-serif; margin: 0; padding: 12px; color: var(--figma-color-text, #222); background: var(--figma-color-bg, #fff); }
-  h3 { font-size: 12px; margin: 14px 0 6px; }
-  textarea, input[type=text], select { width: 100%; box-sizing: border-box; font: 11px/1.4 ui-monospace, monospace; border: 1px solid var(--figma-color-border, #ccc); border-radius: 4px; padding: 6px; background: transparent; color: inherit; }
-  textarea { height: 140px; }
-  button { margin: 6px 6px 0 0; padding: 6px 10px; border-radius: 5px; border: 1px solid var(--figma-color-border, #ccc); background: var(--figma-color-bg-secondary, #f5f5f5); color: inherit; cursor: pointer; }
-  button.primary { background: #0d99ff; border-color: #0d99ff; color: #fff; }
-  button:disabled { opacity: .5; cursor: default; }
-  details { margin-top: 8px; } summary { cursor: pointer; font-weight: 600; }
-  .row { display: flex; gap: 8px; align-items: center; }
-  #status { margin-top: 10px; font: 11px/1.45 ui-monospace, monospace; white-space: pre-wrap; }
-  #result { margin-top: 10px; border-top: 1px solid var(--figma-color-border, #ddd); padding-top: 8px; max-height: 330px; overflow: auto; }
-  #result table { border-collapse: collapse; width: 100%; font: inherit; }
-  #result td { padding: 3px 4px; vertical-align: top; border-bottom: 1px solid var(--figma-color-border, #eee); }
-  #result td:first-child { color: var(--figma-color-text-secondary, #666); width: 38%; }
-  .ok { color: #14ae5c; } .warn { color: #e5a000; } .err { color: #e03e1a; }
+  h3 { font-size: 12px; margin: 12px 0 6px; }
+  textarea, input[type=text], input[type=password], select { box-sizing: border-box; font: 11px/1.4 ui-monospace, monospace; border: 1px solid var(--b); border-radius: 4px; padding: 6px; background: transparent; color: inherit; }
+  textarea { width: 100%; height: 130px; }
+  button { padding: 6px 10px; border-radius: 5px; border: 1px solid var(--b); background: var(--bg2); color: inherit; cursor: pointer; font: inherit; }
+  button.primary { background: #0d99ff; border-color: #0d99ff; color: #fff; font-weight: 600; }
+  button:disabled { opacity: .45; cursor: default; }
+  .row { display: flex; gap: 8px; align-items: center; } .grow { flex: 1; min-width: 0; }
+  .pill { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: #aaa; }
+  .ok .dot { background: #14ae5c; } .warn .dot { background: #e5a000; } .off .dot { background: #e03e1a; }
+  .box { border: 1px solid var(--b); border-radius: 6px; padding: 8px 10px; margin-top: 8px; }
+  #drop { border: 2px dashed var(--b); border-radius: 8px; padding: 18px 10px; text-align: center; color: var(--muted); }
+  #drop.over { border-color: #0d99ff; color: #0d99ff; background: rgba(13,153,255,.06); }
+  #drop b { color: var(--figma-color-text, #222); }
+  .steps { list-style: none; padding: 0; margin: 6px 0 0; }
+  .steps li { padding: 2px 0; color: var(--muted); } .steps li::before { content: '○'; display: inline-block; width: 16px; }
+  .steps li.active { color: #0d99ff; font-weight: 600; } .steps li.active::before { content: '◐'; }
+  .steps li.done { color: inherit; } .steps li.done::before { content: '✓'; color: #14ae5c; }
+  .steps li.fail { color: #e03e1a; } .steps li.fail::before { content: '✕'; }
+  .err { color: #e03e1a; } .okc { color: #14ae5c; } .warnc { color: #e5a000; } .muted { color: var(--muted); }
+  #error { border-color: #e03e1a; } #error code, .help code { font: 11px ui-monospace, monospace; background: var(--bg2); padding: 1px 4px; border-radius: 3px; }
+  table { border-collapse: collapse; width: 100%; font: inherit; }
+  td { padding: 3px 4px; vertical-align: top; border-bottom: 1px solid var(--b); } td:first-child { color: var(--muted); width: 36%; }
   ul { margin: 2px 0; padding-left: 16px; }
+  details { margin-top: 10px; } summary { cursor: pointer; font-weight: 600; }
+  .hidden { display: none !important; }
 </style>
 
-<h3>1 · design.json</h3>
-<input type="file" id="file" accept=".json">
-<div id="fileinfo">Choose <b>out\&lt;file&gt;\&lt;W&gt;x&lt;H&gt;\design.json</b> from <code>npm run capture</code>.</div>
+<!-- 1. Helper connection -->
+<div class="row">
+  <span id="hstatus" class="pill off grow"><span class="dot"></span><span id="htext">Checking Local Helper…</span></span>
+  <button id="retry">Retry connection</button>
+</div>
+<div id="tokenbox" class="box hidden">
+  The Helper is running. Paste the <b>token</b> shown in the Helper window (it changes every time the Helper starts):
+  <div class="row" style="margin-top:6px"><input type="password" id="token" class="grow" placeholder="token"><button id="savetoken">Connect</button></div>
+</div>
+<div id="helphelp" class="box help hidden">
+  <b>Local Helper is not running.</b> Open PowerShell in the project folder and run:
+  <div style="margin:6px 0"><code>npm run helper</code></div>
+  Leave that window open, then click <b>Retry connection</b>. The Helper only works on this computer (<code>http://localhost:43127</code>); nothing is uploaded to the internet.
+</div>
 
-<details id="fontsbox">
-  <summary>Fonts (map CSS fonts to Figma font styles)</summary>
+<!-- 2. File -->
+<h3>1 · Claude Design HTML</h3>
+<div id="drop">Drop Claude Design HTML here<br><span class="muted">or</span> <button id="choose">Choose HTML</button>
+  <div id="fileinfo" style="margin-top:6px"></div></div>
+<input type="file" id="htmlfile" accept=".html,.htm,text/html" class="hidden">
+
+<div class="row" style="margin-top:8px">
+  <span style="width:88px">Design root</span>
+  <select id="rootmode"><option value="auto">Auto</option><option value="all">All screens</option><option value="selector">Selector…</option></select>
+  <input type="text" id="rootsel" class="grow hidden" placeholder="[data-screen-label='Detail']">
+</div>
+<div class="row" style="margin-top:6px">
+  <span style="width:88px">Expand</span>
+  <input type="text" id="expand" class="grow" placeholder="optional: .panel, .list  (scroll areas to show in full)">
+</div>
+
+<!-- 3. Convert -->
+<div class="row" style="margin-top:10px"><button class="primary grow" id="convert" disabled>Convert &amp; Import</button></div>
+<ul class="steps hidden" id="steps">
+  <li data-s="uploading">Uploading <span id="upct"></span></li>
+  <li data-s="rendering">Rendering</li>
+  <li data-s="measuring">Measuring</li>
+  <li data-s="building">Building design data</li>
+  <li data-s="importing">Importing to Figma <span id="ipct"></span></li>
+  <li data-s="complete">Complete</li>
+</ul>
+<div id="error" class="box hidden"></div>
+<div id="result"></div>
+
+<!-- 4. Advanced / fallback -->
+<details id="advanced">
+  <summary>Advanced / Fallback</summary>
+  <h3>Import design.json (from <code>npm run capture</code>)</h3>
+  <input type="file" id="jsonfile" accept=".json">
+  <div id="jsoninfo" class="muted"></div>
+  <div class="row" style="margin-top:6px"><button id="importjson" disabled>Import design.json</button></div>
+  <h3>Fonts (CSS font → Figma font style)</h3>
   <textarea id="config">{
   "fontMap": {},
   "families": {
@@ -32,73 +90,264 @@
   },
   "fallback": { "family": "Inter", "style": "Regular" }
 }</textarea>
-  <div class="row"><input type="text" id="q" value="ozone" style="flex:1"><button id="find">Find fonts</button></div>
-  <div class="row" style="margin-top:6px">Line breaks:
-    <select id="linemode" style="width:auto"><option value="ls">U+2028 (recommended)</option><option value="nl">\n</option><option value="none">Figma wraps</option></select>
-  </div>
+  <div class="row" style="margin-top:6px"><input type="text" id="q" value="ozone" class="grow"><button id="find">Find fonts</button></div>
+  <div id="fonts" class="muted" style="white-space:pre-wrap;margin-top:4px"></div>
+  <div class="row" style="margin-top:6px">Line breaks
+    <select id="linemode"><option value="ls">U+2028 (recommended)</option><option value="nl">\n</option><option value="none">Figma wraps</option></select></div>
+  <div class="row" style="margin-top:8px"><button id="png" disabled>Download PNG</button><button id="dl" disabled>Download result JSON</button></div>
+  <div class="muted" style="margin-top:6px">Helper: <span id="hbase">—</span></div>
 </details>
 
-<h3>2 · Import</h3>
-<button class="primary" id="import" disabled>Import to Figma</button>
-<button id="png" disabled>Download PNG</button>
-<button id="dl" disabled>Download result JSON</button>
-<div id="status"></div>
-<div id="result"></div>
-
 <script>
-  const $ = id => document.getElementById(id);
-  let data = null, lastResult = null;
-  const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;');
-  const status = (s, cls) => { $('status').className = cls || ''; $('status').textContent = s; };
-  const cfg = () => JSON.parse($('config').value);
-  function download(name, blob) { const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; document.body.appendChild(a); a.click(); a.remove(); }
-  function busy(on) { $('import').disabled = on || !data; $('find').disabled = on; $('png').disabled = on || !lastResult; $('dl').disabled = on || !lastResult; }
+const $ = id => document.getElementById(id);
+// Figma accepts only http://localhost:<port> in devAllowedDomains (no IP literals), so the UI never uses 127.0.0.1;
+// localhost resolves to this computer, where the Helper listens on 127.0.0.1.
+const HOSTS = ['http://localhost:43127'];
+const MAX_MB = 100;
+const esc = s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;');
+const mb = n => (n / 1048576).toFixed(1) + ' MB';
+const post = m => parent.postMessage({ pluginMessage: m }, '*');
 
-  $('file').onchange = async () => {
-    const f = $('file').files[0]; if (!f) return;
-    try {
-      const d = JSON.parse(await f.text());
-      if (!d.schemaVersion || !d.root || !d.capture) throw new Error('not a design.json from npm run capture');
-      data = d; lastResult = null; $('result').innerHTML = '';
-      $('fileinfo').innerHTML = `<b>${esc(d.capture.source)}</b> — design ${d.root.box.width}×${d.root.box.height} — v${esc(d.schemaVersion)} — ${(f.size / 1048576).toFixed(1)} MB`;
-      status(''); busy(false);
-    } catch (e) { data = null; status('Could not read the file: ' + e.message, 'err'); busy(false); }
-  };
-  $('find').onclick = () => parent.postMessage({ pluginMessage: { type: 'find-fonts', query: $('q').value } }, '*');
-  $('import').onclick = () => {
-    let c; try { c = cfg(); } catch (e) { $('fontsbox').open = true; status('Font map is not valid JSON: ' + e.message, 'err'); return; }
-    parent.postMessage({ pluginMessage: { type: 'save-config', config: c } }, '*');
-    busy(true); $('result').innerHTML = ''; status('Importing…');
-    parent.postMessage({ pluginMessage: { type: 'import', data, config: c, lineMode: $('linemode').value } }, '*');
-  };
-  $('png').onclick = () => parent.postMessage({ pluginMessage: { type: 'export-png', rootId: lastResult.rootId, scale: 2, name: 'figma-e2e.png' } }, '*');
-  $('dl').onclick = () => download('import-result.json', new Blob([JSON.stringify(lastResult, null, 2)], { type: 'application/json' }));
+let helper = { base: null, token: '', status: 'checking' };
+let htmlFile = null, jsonData = null, busy = false, lastResults = [];
+let importWaiter = null;
 
-  function showSummary(m) {
-    const s = m.summary, row = (k, v) => `<tr><td>${k}</td><td>${v}</td></tr>`;
-    const good = (ok, text) => `<span class="${ok ? 'ok' : 'err'}">${text}</span>`;
-    const list = (arr, fn, max = 12) => arr.length ? `<ul>${arr.slice(0, max).map(x => `<li>${fn(x)}</li>`).join('')}${arr.length > max ? `<li>… ${arr.length - max} more</li>` : ''}</ul>` : '<span class="ok">none</span>';
-    $('result').innerHTML = '<table>' +
-      row('Design size', `<b>${s.designSize.width} × ${s.designSize.height}</b>${s.detection ? ` <span style="opacity:.7">(${esc(s.detection)})</span>` : ''}`) +
-      row('Layers', good(s.layers.created === s.layers.expected, `${s.layers.created} / ${s.layers.expected}`)) +
-      row('Missing layers', list(s.missingLayers, x => esc((x.nodeId || x.assetId) + ' ' + (x.name || '') + ' — ' + x.reason))) +
-      row('Substituted fonts', s.substitutedFonts.length ? `<ul>${s.substitutedFonts.map(f => `<li class="warn">${esc(f.requested)} → ${esc(f.resolved)} (${f.count})</li>`).join('')}</ul>` : '<span class="ok">none</span>') +
-      row('Browser font fallback', s.captureFontIssues.length ? `<ul>${s.captureFontIssues.slice(0, 6).map(f => `<li class="warn">${esc(f.nodeId)}: Chrome used ${esc(f.usedFamily || '?')} (${esc(f.issue)})</li>`).join('')}</ul>` : '<span class="ok">none</span>') +
-      row('Unsupported features', s.unsupported.length ? `<ul>${s.unsupported.map(u => `<li class="warn">${esc(u.feature)} ×${u.count}</li>`).join('')}</ul>` : '<span class="ok">none</span>') +
-      row('Raster fallbacks', Object.keys(s.rasterFallbacks).length ? Object.entries(s.rasterFallbacks).map(([k, v]) => `${esc(k)} ×${v}`).join(', ') : 'none') +
-      row('Geometry > ±2 px', good(!s.geometryFailures, s.geometryFailures)) +
-      row('Line breaks ≠ Chrome', good(!s.textLineMismatch, s.textLineMismatch)) +
-      '</table>';
-    status(s.layers.created === s.layers.expected && !s.missingLayers.length ? 'Import finished.' : 'Import finished with problems — see below.', s.missingLayers.length ? 'err' : 'ok');
+// ---------------------------------------------------------------- Helper connection
+function setStatus(kind, text) {
+  helper.status = kind;
+  $('hstatus').className = 'pill grow ' + ({ connected: 'ok', token: 'warn', checking: 'warn' }[kind] || 'off');
+  $('htext').textContent = text;
+  $('tokenbox').classList.toggle('hidden', kind !== 'token');
+  $('helphelp').classList.toggle('hidden', kind !== 'off');
+  $('hbase').textContent = helper.base || '—';
+  refreshButtons();
+}
+async function fetchT(url, opts = {}, ms = 2500) {
+  const ac = new AbortController(); const t = setTimeout(() => ac.abort(), ms);
+  try { return await fetch(url, { ...opts, cache: 'no-store', signal: ac.signal }); } finally { clearTimeout(t); }
+}
+const authHeaders = () => ({ Authorization: 'Bearer ' + helper.token });
+async function checkHelper() {
+  setStatus('checking', 'Checking Local Helper…');
+  helper.base = null;
+  for (const h of HOSTS) {
+    try { const r = await fetchT(h + '/health'); const j = await r.json(); if (j.ok && j.name === 'open-htmltofigma-helper') { helper.base = h; helper.version = j.version; break; } } catch (e) { /* next */ }
   }
+  if (!helper.base) return setStatus('off', 'Local Helper: Not running');
+  if (!helper.token) return setStatus('token', 'Local Helper running — token needed');
+  try {
+    const r = await fetchT(helper.base + '/session', { headers: authHeaders() });
+    if (r.ok) return setStatus('connected', `Local Helper: Connected (${helper.version})`);
+    return setStatus('token', 'Local Helper running — token changed, paste the new one');
+  } catch (e) { return setStatus('off', 'Local Helper: Not running'); }
+}
+$('retry').onclick = checkHelper;
+$('savetoken').onclick = async () => {
+  helper.token = $('token').value.trim();
+  post({ type: 'save-helper', settings: { token: helper.token } });
+  await checkHelper();
+  if (helper.status === 'token') showError('That token was not accepted.', 'Copy the whole token line from the Helper window (it changes when the Helper restarts).');
+  else hideError();
+};
 
-  onmessage = e => {
-    const m = e.data.pluginMessage; if (!m) return;
-    if (m.type === 'error') { status('Error: ' + m.message, 'err'); busy(false); return; }
-    if (m.type === 'config') { $('config').value = JSON.stringify(m.config, null, 2); return; }
-    if (m.type === 'progress') { status(`Importing… ${m.done}/${m.total} layers`); return; }
-    if (m.type === 'fonts') { $('fontsbox').open = true; status(Object.keys(m.fams).length ? Object.entries(m.fams).map(([f, s]) => `${f}: ${s.join(', ')}`).join('\n') : 'No family matches.'); return; }
-    if (m.type === 'png') { download(m.name, new Blob([m.bytes], { type: 'image/png' })); return; }
-    if (m.type === 'import-result') { lastResult = m; busy(false); showSummary(m); }
-  };
+// ---------------------------------------------------------------- file selection
+function pickFile(f) {
+  hideError();
+  if (!f) return;
+  if (!/\.html?$/i.test(f.name)) { htmlFile = null; $('fileinfo').innerHTML = ''; showError(`"${f.name}" is not an .html file.`, 'Export the design from Claude Design as a standalone HTML file.'); return refreshButtons(); }
+  if (f.size > MAX_MB * 1048576) { htmlFile = null; showError(`"${f.name}" is ${mb(f.size)} — the limit is ${MAX_MB} MB.`); return refreshButtons(); }
+  htmlFile = f;
+  resetSteps(); $('steps').classList.add('hidden'); $('result').innerHTML = ''; lastResults = [];
+  $('fileinfo').innerHTML = `<b>${esc(f.name)}</b> · ${mb(f.size)}`;
+  refreshButtons();
+}
+$('choose').onclick = () => $('htmlfile').click();
+$('htmlfile').onchange = () => pickFile($('htmlfile').files[0]);
+const drop = $('drop');
+['dragenter', 'dragover'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add('over'); }));
+['dragleave', 'drop'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove('over'); }));
+drop.addEventListener('drop', e => pickFile(e.dataTransfer.files[0]));
+document.addEventListener('dragover', e => e.preventDefault()); document.addEventListener('drop', e => e.preventDefault());
+$('rootmode').onchange = () => $('rootsel').classList.toggle('hidden', $('rootmode').value !== 'selector');
+
+function refreshButtons() {
+  $('convert').disabled = busy || !htmlFile || helper.status !== 'connected';
+  $('importjson').disabled = busy || !jsonData;
+  $('png').disabled = $('dl').disabled = busy || !lastResults.length;
+  $('convert').textContent = busy ? 'Working…' : 'Convert & Import';
+}
+
+// ---------------------------------------------------------------- progress / errors
+const STEPS = ['uploading', 'rendering', 'measuring', 'building', 'importing', 'complete'];
+function step(name, state) {
+  $('steps').classList.remove('hidden');
+  const idx = STEPS.indexOf(name);
+  for (const li of $('steps').children) {
+    const i = STEPS.indexOf(li.dataset.s);
+    li.className = i < idx ? 'done' : i === idx ? (state || 'active') : '';
+  }
+}
+function resetSteps() { for (const li of $('steps').children) li.className = ''; $('upct').textContent = $('ipct').textContent = ''; }
+function showError(msg, hint, html) {
+  $('error').classList.remove('hidden');
+  $('error').innerHTML = `<b class="err">${esc(msg)}</b>${hint ? `<div style="margin-top:4px">${esc(hint)}</div>` : ''}${html || ''}`;
+}
+function hideError() { $('error').classList.add('hidden'); $('error').innerHTML = ''; }
+function helperDownHelp() {
+  return `<div class="help" style="margin-top:6px">Start it again in PowerShell (project folder): <code>npm run helper</code>, paste the new token, then click <b>Retry connection</b>.</div>`;
+}
+
+// ---------------------------------------------------------------- Convert & Import
+function upload(file, query) {
+  return new Promise((resolve, reject) => {
+    const x = new XMLHttpRequest();
+    x.open('POST', `${helper.base}/capture?${query}`);
+    x.setRequestHeader('Authorization', 'Bearer ' + helper.token);
+    x.setRequestHeader('Content-Type', 'application/octet-stream');
+    x.upload.onprogress = e => { if (e.lengthComputable) $('upct').textContent = Math.round(e.loaded / e.total * 100) + '%'; };
+    x.onload = () => { let j = null; try { j = JSON.parse(x.responseText); } catch (e) {} resolve({ status: x.status, json: j }); };
+    x.onerror = () => reject(Object.assign(new Error('network'), { network: true }));
+    x.send(file);
+  });
+}
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+async function pollJob(id) {
+  let misses = 0;
+  for (;;) {
+    await sleep(500);
+    let j;
+    try { const r = await fetchT(`${helper.base}/jobs/${id}`, { headers: authHeaders() }, 4000); j = await r.json(); misses = 0; }
+    catch (e) { if (++misses >= 10) throw Object.assign(new Error('network'), { network: true }); continue; }
+    if (!j.ok) throw Object.assign(new Error(j.error.message), { helper: j.error });
+    if (j.state === 'error') { fetchT(`${helper.base}/jobs/${id}/result`, { headers: authHeaders() }).catch(() => {}); throw Object.assign(new Error(j.error.message), { helper: j.error }); }
+    step({ rendering: 'rendering', measuring: 'measuring', building: 'building', collecting: 'building', done: 'building' }[j.stage] || 'rendering');
+    if (j.state === 'done') return;
+  }
+}
+function importDesign(design, label) {
+  return new Promise((resolve, reject) => {
+    let config; try { config = JSON.parse($('config').value); } catch (e) { $('advanced').open = true; return reject(new Error('Font map (Advanced) is not valid JSON: ' + e.message)); }
+    post({ type: 'save-config', config });
+    importWaiter = { resolve, reject, label };
+    post({ type: 'import', data: design, config, lineMode: $('linemode').value });
+  });
+}
+async function convert(rootOverride) {
+  if (busy || !htmlFile) return;
+  busy = true; lastResults = []; refreshButtons(); hideError(); $('result').innerHTML = ''; resetSteps();
+  const t0 = Date.now();
+  const mode = rootOverride != null ? String(rootOverride) : $('rootmode').value;
+  const q = new URLSearchParams({ name: htmlFile.name });
+  if (mode === 'all' || /^\d+$/.test(mode)) q.set('designRoot', mode);
+  else if (mode === 'selector' && $('rootsel').value.trim()) q.set('designRoot', $('rootsel').value.trim());
+  if ($('expand').value.trim()) q.set('expand', $('expand').value.trim());
+  try {
+    step('uploading');
+    const up = await upload(htmlFile, q.toString());
+    if (up.status !== 202) {
+      if (up.status === 401) { await checkHelper(); throw new Error('The Helper token is not valid any more — paste the new token and try again.'); }
+      throw Object.assign(new Error(up.json && up.json.error ? up.json.error.message : 'Upload failed (' + up.status + ')'), { helper: up.json && up.json.error });
+    }
+    step('rendering');
+    await pollJob(up.json.jobId);
+    step('building');
+    const r = await fetch(`${helper.base}/jobs/${up.json.jobId}/result`, { headers: authHeaders(), cache: 'no-store' });
+    const res = await r.json();
+    if (!res.ok) throw Object.assign(new Error(res.error.message), { helper: res.error });
+    step('importing');
+    for (let i = 0; i < res.designs.length; i++) {
+      $('ipct').textContent = res.designs.length > 1 ? `${i + 1}/${res.designs.length}` : '';
+      const m = await importDesign(res.designs[i].design);
+      lastResults.push({ capture: res.designs[i].summary, plugin: m });
+    }
+    step('complete', 'done');
+    showResults((Date.now() - t0) / 1000);
+    post({ type: 'notify', text: `Imported ${res.designs.length} frame(s) from ${htmlFile.name}` });
+  } catch (e) {
+    const cur = [...$('steps').children].find(li => li.className === 'active');
+    if (cur) cur.className = e.helper && e.helper.code === 'multiple-roots' ? '' : 'fail';   // a choice is needed, not a failure
+    handleError(e);
+  } finally { busy = false; refreshButtons(); }
+}
+$('convert').onclick = () => convert();
+
+function handleError(e) {
+  if (e.network) { setStatus('off', 'Local Helper: Not running'); return showError('Lost the connection to the Local Helper.', 'The Helper window may have been closed or stopped.', helperDownHelp()); }
+  const h = e.helper;
+  if (h && h.code === 'multiple-roots') {
+    const btns = h.roots.map(r => `<li>${r.index}: <b>${esc(r.label || r.element)}</b> ${r.width}×${r.height} <button data-root="${r.index}">Import only this</button></li>`).join('');
+    showError(h.message, null, `<ul style="margin-top:6px">${btns}</ul><button data-root="all">Import all screens</button>`);
+    for (const b of $('error').querySelectorAll('button[data-root]')) b.onclick = () => convert(b.dataset.root);
+    return;
+  }
+  showError(e.message || String(e), h && h.hint);
+}
+
+// ---------------------------------------------------------------- summary
+// raster fallback reasons (capture report) in plain words
+const RASTER_LABEL = { 'background-raster': 'gradient / background image', 'image-load-failed': 'image (blob / unreadable source, taken from screen)',
+  'image-webp': 'WebP image', 'image-too-large': 'image > 4096 px', map: 'map', canvas: 'canvas', media: 'video', iframe: 'iframe', embed: 'embedded object',
+  'native-control': 'form control', 'icon-font': 'icon font', selector: '--raster selector' };
+function summaryTable(r) {
+  const s = r.plugin.summary, c = r.capture || {}, row = (k, v) => `<tr><td>${k}</td><td>${v}</td></tr>`;
+  const good = (ok, text) => `<span class="${ok ? 'okc' : 'err'}">${text}</span>`;
+  const list = (arr, fn, max = 8) => arr.length ? `<ul>${arr.slice(0, max).map(x => `<li>${fn(x)}</li>`).join('')}${arr.length > max ? `<li>… ${arr.length - max} more</li>` : ''}</ul>` : '<span class="okc">none</span>';
+  return '<table>' +
+    row('Design size', `<b>${s.designSize.width} × ${s.designSize.height}</b>${s.detection ? ` <span class="muted">(${esc(s.detection)})</span>` : ''}`) +
+    row('Layers', good(s.layers.created === s.layers.expected, `${s.layers.created} / ${s.layers.expected}`)) +
+    row('Missing layers', list(s.missingLayers, x => esc((x.nodeId || x.assetId) + ' ' + (x.name || '') + ' — ' + x.reason))) +
+    row('Substituted fonts', s.substitutedFonts.length ? `<ul>${s.substitutedFonts.map(f => `<li class="warnc">${esc(f.requested)} → ${esc(f.resolved)} (${f.count})</li>`).join('')}</ul>` : '<span class="okc">none</span>') +
+    row('Browser font fallback', s.captureFontIssues.length ? `<ul>${s.captureFontIssues.slice(0, 5).map(f => `<li class="warnc">${esc(f.nodeId)}: Chrome used ${esc(f.usedFamily || '?')}</li>`).join('')}</ul>` : '<span class="okc">none</span>') +
+    row('Unsupported features', s.unsupported.length ? `<ul>${s.unsupported.map(u => `<li class="warnc">${esc(u.feature)} ×${u.count}</li>`).join('')}</ul>` : '<span class="okc">none</span>') +
+    row('Captured as image', Object.keys(s.rasterFallbacks).length ? Object.entries(s.rasterFallbacks).map(([k, v]) => `${esc(RASTER_LABEL[k] || k)} ×${v}`).join(', ') : 'none') +
+    row('Geometry > ±2 px', good(!s.geometryFailures, s.geometryFailures)) +
+    row('Line breaks ≠ Chrome', good(!s.textLineMismatch, s.textLineMismatch)) + '</table>';
+}
+function showResults(seconds) {
+  $('result').innerHTML = lastResults.map((r, i) =>
+    `<div class="box">${lastResults.length > 1 ? `<b>Frame ${i + 1}</b>${r.capture && r.capture.designRoot && r.capture.designRoot.label ? ' — ' + esc(r.capture.designRoot.label) : ''}` : ''}${summaryTable(r)}</div>`).join('') +
+    (seconds ? `<div class="muted" style="margin-top:6px">Done in ${seconds.toFixed(0)} s.</div>` : '');
+}
+
+// ---------------------------------------------------------------- fallback: design.json file
+$('jsonfile').onchange = async () => {
+  const f = $('jsonfile').files[0]; if (!f) return;
+  try {
+    const d = JSON.parse(await f.text());
+    if (!d.schemaVersion || !d.root || !d.capture) throw new Error('not a design.json from npm run capture');
+    jsonData = d; $('jsoninfo').textContent = `${d.capture.source} — design ${d.root.box.width}×${d.root.box.height} — v${d.schemaVersion} — ${mb(f.size)}`;
+  } catch (e) { jsonData = null; $('jsoninfo').textContent = 'Could not read the file: ' + e.message; }
+  refreshButtons();
+};
+$('importjson').onclick = async () => {
+  if (!jsonData) return;
+  busy = true; lastResults = []; refreshButtons(); hideError(); $('result').innerHTML = ''; resetSteps(); step('importing');
+  try { lastResults.push({ capture: null, plugin: await importDesign(jsonData) }); step('complete', 'done'); showResults(); }
+  catch (e) { handleError(e); }
+  finally { busy = false; refreshButtons(); }
+};
+$('find').onclick = () => post({ type: 'find-fonts', query: $('q').value });
+$('png').onclick = () => lastResults.forEach((r, i) => post({ type: 'export-png', rootId: r.plugin.rootId, scale: 2, name: lastResults.length > 1 ? `figma-e2e-${i + 1}.png` : 'figma-e2e.png' }));
+$('dl').onclick = () => lastResults.forEach((r, i) => download(lastResults.length > 1 ? `import-result-${i + 1}.json` : 'import-result.json', new Blob([JSON.stringify(r.plugin, null, 2)], { type: 'application/json' })));
+function download(name, blob) { const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; document.body.appendChild(a); a.click(); a.remove(); }
+
+// ---------------------------------------------------------------- messages from the plugin main code
+onmessage = e => {
+  const m = e.data.pluginMessage; if (!m) return;
+  if (m.type === 'helper-settings') { if (m.settings && m.settings.token && !helper.token) { helper.token = m.settings.token; $('token').value = helper.token; } checkHelper(); return; }
+  if (m.type === 'config') { $('config').value = JSON.stringify(m.config, null, 2); return; }
+  if (m.type === 'progress') { $('ipct').textContent = `${m.done}/${m.total} layers`; return; }
+  if (m.type === 'fonts') { $('fonts').textContent = Object.keys(m.fams).length ? Object.entries(m.fams).map(([f, s]) => `${f}: ${s.join(', ')}`).join('\n') : 'No family matches.'; return; }
+  if (m.type === 'png') { download(m.name, new Blob([m.bytes], { type: 'image/png' })); return; }
+  if (m.type === 'error') { if (importWaiter) { importWaiter.reject(new Error('Figma import failed: ' + m.message)); importWaiter = null; } else showError('Error: ' + m.message); return; }
+  if (m.type === 'import-result') { $('ipct').textContent = `${m.elements} layers`; if (importWaiter) { importWaiter.resolve(m); importWaiter = null; } return; }
+};
+post({ type: 'get-helper' });
+// keep the status honest while the plugin is open (Helper closed / restarted)
+setInterval(async () => {
+  if (busy || helper.status === 'checking') return;
+  if (helper.status === 'connected') { try { const r = await fetchT(helper.base + '/health'); if (!r.ok) throw 0; } catch (e) { setStatus('off', 'Local Helper: Not running'); } }
+  else if (helper.status === 'off') checkHelper();
+}, 5000);
+setTimeout(() => { if (helper.status === 'checking' && !helper.base) checkHelper(); }, 1500);
 </script>

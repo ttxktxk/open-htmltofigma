@@ -18,14 +18,6 @@
         "text": 64,
         "image": 1
       },
-      "fonts": [
-        "Anuphan-Regular",
-        "DBOzoneX",
-        "DBOzoneX-Bold",
-        "DBOzoneX-Medium",
-        "IBMPlexSansThai-Medium",
-        "IBMPlexSansThai-Regular"
-      ],
       "textLines": {
         "n48t0": 1,
         "n52t1": 1,
@@ -97,7 +89,15 @@
         "transform": 2,
         "clipPath": 2,
         "position": 1
-      }
+      },
+      "fontFaces": [
+        "Anuphan|500|normal",
+        "DB Ozone X|400|normal",
+        "DB Ozone X|500|normal",
+        "DB Ozone X|700|normal",
+        "IBM Plex Sans Thai|400|normal",
+        "IBM Plex Sans Thai|500|normal"
+      ]
     },
     {
       "name": "long-page-1920x2415",
@@ -115,14 +115,6 @@
         "text": 151,
         "image": 3
       },
-      "fonts": [
-        "Anuphan-Regular",
-        "DBOzoneX",
-        "DBOzoneX-Bold",
-        "DBOzoneX-Medium",
-        "IBMPlexSansThai-Medium",
-        "IBMPlexSansThai-Regular"
-      ],
       "textLines": {
         "n171t0": 1,
         "n178t1": 1,
@@ -280,7 +272,15 @@
         "clipPath": 2,
         "backdropFilter": 7,
         "transform": 4
-      }
+      },
+      "fontFaces": [
+        "Anuphan|400|normal",
+        "DB Ozone X|400|normal",
+        "DB Ozone X|500|normal",
+        "DB Ozone X|700|normal",
+        "IBM Plex Sans Thai|400|normal",
+        "IBM Plex Sans Thai|500|normal"
+      ]
     }
   ]
 }

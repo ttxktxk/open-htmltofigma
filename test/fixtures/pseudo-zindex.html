@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Pseudo-element z-order fixture</title>
+<!-- npm test fixture: pseudo-elements whose CSS paint order differs from DOM order. -->
+<style>
+  body{margin:0;font-family:Arial,'Liberation Sans',sans-serif}
+  .s{width:300px;height:200px;background:#fff;padding:20px;display:flex;gap:20px;flex-wrap:wrap}
+  /* 1. z-index:-1 inside a stacking context: under the button text, over nothing else */
+  .b1{position:relative;z-index:0;width:80px;height:40px;color:#000}
+  .b1::after{content:'';position:absolute;inset:0;z-index:-1;background:#fc0;border-radius:8px}
+  /* 2. z-index:-1 without a stacking context: painted under the white card, so not visible (as in Chrome) */
+  .b2{position:relative;width:80px;height:40px}
+  .b2::before{content:'';position:absolute;inset:0;z-index:-1;background:#f00}
+  /* 3. ::after under a positioned child with z-index:2 */
+  .b3{position:relative;width:80px;height:40px;background:#eee}
+  .b3::after{content:'';position:absolute;left:10px;top:10px;width:20px;height:20px;background:#00f}
+  .b3 span{position:relative;z-index:2;display:block;width:30px;height:30px;background:#0a0}
+</style>
+</head>
+<body><div class="s" data-screen-label="z-order"><div class="b1">One</div><div class="b2">Two</div><div class="b3"><span></span></div></div></body>
+</html>
